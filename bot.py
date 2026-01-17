@@ -344,38 +344,25 @@ async def debug_command(client: Client, message: Message):
         except Exception as e:
             force = f"⚠️ {str(e)[:30]}"
     
-    # AI Providers
-    ai_info = []
-    if Config.OPENAI_API_KEY:
-        ai_info.append(f"✅ OpenAI: {Config.OPENAI_API_KEY[:10]}...")
-    else:
-        ai_info.append("❌ OpenAI: Not Set")
-    
-    if Config.GROQ_API_KEY:
-        ai_info.append(f"✅ Groq: {Config.GROQ_API_KEY[:10]}...")
-    else:
-        ai_info.append("❌ Groq: Not Set")
-    
-    if Config.GEMINI_API_KEY:
-        ai_info.append(f"✅ Gemini: {Config.GEMINI_API_KEY[:10]}...")
-    else:
-        ai_info.append("❌ Gemini: Not Set")
+    # Hugging Face
+    hf_status = "❌ Not Set"
+    if Config.HUGGINGFACE_API_KEY:
+        hf_status = f"✅ Token: {Config.HUGGINGFACE_API_KEY[:10]}..."
     
     debug_text = f"""
 🔍 **System Check**
 
-**🤖 AI Providers:**
-Primary: **{Config.AI_PROVIDER.upper()}**
-{chr(10).join(ai_info)}
+**🤖 AI Provider:**
+Hugging Face ONLY
+{hf_status}
 
 **💾 MongoDB:** {mongo}
 **📢 Log:** {log_status}
 **🔒 Force Sub:** {force}
 
-**📊 Stats:**
-Users: {await db.get_total_users()}
+**📊 Users:** {await db.get_total_users()}
 
-**Test AI:** /aitest
+**Test:** /aitest
 """
     await message.reply(debug_text)
 
@@ -383,29 +370,23 @@ Users: {await db.get_total_users()}
 @bot.on_message(filters.command("aitest") & filters.user(Config.OWNER_ID) & filters.private)
 async def ai_test(client: Client, message: Message):
     
-    test_msg = await message.reply("🔍 Testing AI...")
+    test_msg = await message.reply("🔍 Testing Hugging Face...")
     
     response = await get_ai_response([
         {"role": "system", "content": "You are helpful."},
-        {"role": "user", "content": "Say: WORKING"}
-    ], temperature=0)
+        {"role": "user", "content": "Hello, how are you?"}
+    ], temperature=0.7)
     
-    if "WORKING" in response.upper() and "❌" not in response:
-        status = "✅ Working!"
-        detail = f"Response: {response[:100]}"
-    elif "❌" in response:
-        status = "❌ Error"
-        detail = response[:500]
+    if "❌" in response or "busy" in response.lower():
+        status = "❌ Failed"
     else:
-        status = "⚠️ Unexpected"
-        detail = f"Got: {response[:200]}"
+        status = "✅ Working"
     
     await test_msg.edit_text(
-        f"**AI Test**\n\n"
-        f"Provider: {Config.AI_PROVIDER.upper()}\n\n"
-        f"{status}\n\n{detail}"
+        f"**Hugging Face Test**\n\n"
+        f"{status}\n\n"
+        f"**Response:**\n{response}"
     )
-
 
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
