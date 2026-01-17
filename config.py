@@ -7,14 +7,26 @@ class Config:
     API_HASH = getenv("API_HASH", "")
     BOT_TOKEN = getenv("BOT_TOKEN", "")
     
-    # Bot Name (Optional - Default set)
+    # Bot Name
     BOT_NAME = getenv("BOT_NAME", "AI Life Partner")
     
-    # RapidAPI Configuration (EXACT FORMAT)
-    RAPIDAPI_KEY = getenv("RAPIDAPI_KEY", "6ef0d24418msh3a1b343f7442477p124655jsn22dd56479bdd")
-    RAPIDAPI_HOST = getenv("RAPIDAPI_HOST", "grok-3-0-ai.p.rapidapi.com")
-    RAPIDAPI_URL = getenv("RAPIDAPI_URL", "https://grok-3-0-ai.p.rapidapi.com/")
-    RAPIDAPI_MODEL = getenv("RAPIDAPI_MODEL", "Grok-3")
+    # AI Provider Selection
+    AI_PROVIDER = getenv("AI_PROVIDER", "groq")  # groq, gemini, huggingface
+    
+    # Groq AI Configuration (FREE - RECOMMENDED)
+    GROQ_API_KEY = getenv("GROQ_API_KEY", "")
+    GROQ_API_URL = getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+    GROQ_MODEL = getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+    
+    # Google Gemini (BACKUP - FREE)
+    GEMINI_API_KEY = getenv("GEMINI_API_KEY", "")
+    GEMINI_API_URL = getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models")
+    GEMINI_MODEL = getenv("GEMINI_MODEL", "gemini-pro")
+    
+    # Hugging Face (BACKUP 2 - FREE)
+    HUGGINGFACE_API_KEY = getenv("HUGGINGFACE_API_KEY", "")
+    HUGGINGFACE_API_URL = getenv("HUGGINGFACE_API_URL", "https://api-inference.huggingface.co/models")
+    HUGGINGFACE_MODEL = getenv("HUGGINGFACE_MODEL", "meta-llama/Llama-2-70b-chat-hf")
     
     # Database Configuration
     MONGO_URI = getenv("MONGO_URI", "")
@@ -33,8 +45,3 @@ class Config:
     
     # Flask Configuration (for Render)
     PORT = int(getenv("PORT", "8080"))
-    
-    # X.AI Grok (BACKUP - Optional)
-    GROK_API_KEY = getenv("GROK_API_KEY", "")
-    GROK_API_URL = getenv("GROK_API_URL", "https://api.x.ai/v1/chat/completions")
-    GROK_MODEL = getenv("GROK_MODEL", "grok-4-latest")
