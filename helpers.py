@@ -52,11 +52,49 @@ async def check_force_sub(client: Client, user_id: int):
         return True, None
 
 
+async def get_openai_gpt_response(messages, temperature=0.7):
+    """Get response from OpenAI GPT-4"""
+    
+    if not Config.OPENAI_API_KEY:
+        return None
+    
+    headers = {
+        "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": Config.OPENAI_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": 1000
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                Config.OPENAI_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    return None
+    
+    except Exception as e:
+        print(f"OpenAI Error: {e}")
+        return None
+
+
 async def get_groq_response(messages, temperature=0.7):
-    """Get response from Groq AI (FREE & FAST)"""
+    """Get response from Groq AI (FREE)"""
     
     if not Config.GROQ_API_KEY:
-        return "❌ **Groq API Key Missing**\n\nOwner ne API key configure nahi kiya."
+        return None
     
     headers = {
         "Authorization": f"Bearer {Config.GROQ_API_KEY}",
@@ -84,28 +122,20 @@ async def get_groq_response(messages, temperature=0.7):
                 if response.status == 200:
                     data = await response.json()
                     return data["choices"][0]["message"]["content"]
-                
-                elif response.status == 401:
-                    return "❌ **Invalid API Key**\n\nGroq API key galat hai."
-                
-                elif response.status == 429:
-                    return "⏳ **Rate Limit**\n\nThodi der baad try karo."
-                
                 else:
-                    error_text = await response.text()
-                    return f"❌ **Error {response.status}**\n\n{error_text[:200]}"
+                    return None
     
     except Exception as e:
-        return f"❌ Connection error: {str(e)[:200]}"
+        print(f"Groq Error: {e}")
+        return None
 
 
 async def get_gemini_response(messages, temperature=0.7):
-    """Get response from Google Gemini (FREE)"""
+    """Get response from Google Gemini"""
     
     if not Config.GEMINI_API_KEY:
-        return "❌ **Gemini API Key Missing**"
+        return None
     
-    # Gemini format: combine messages into single prompt
     prompt = ""
     for msg in messages:
         role = msg.get("role", "")
@@ -143,101 +173,69 @@ async def get_gemini_response(messages, temperature=0.7):
                     data = await response.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    error_text = await response.text()
-                    return f"❌ Gemini Error: {error_text[:200]}"
+                    return None
     
     except Exception as e:
-        return f"❌ Gemini Error: {str(e)[:200]}"
-
-
-async def get_huggingface_response(messages, temperature=0.7):
-    """Get response from Hugging Face (FREE)"""
-    
-    if not Config.HUGGINGFACE_API_KEY:
-        return "❌ **Hugging Face API Key Missing**"
-    
-    # Combine messages
-    prompt = ""
-    for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if role == "system":
-            prompt += f"{content}\n\n"
-        elif role == "user":
-            prompt += f"User: {content}\n"
-        elif role == "assistant":
-            prompt += f"Assistant: {content}\n"
-    
-    prompt += "Assistant:"
-    
-    headers = {
-        "Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}"
-    }
-    
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "temperature": temperature,
-            "max_new_tokens": 500,
-            "return_full_text": False
-        }
-    }
-    
-    url = f"{Config.HUGGINGFACE_API_URL}/{Config.HUGGINGFACE_MODEL}"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                
-                if response.status == 200:
-                    data = await response.json()
-                    return data[0]["generated_text"]
-                else:
-                    error_text = await response.text()
-                    return f"❌ HF Error: {error_text[:200]}"
-    
-    except Exception as e:
-        return f"❌ HF Error: {str(e)[:200]}"
+        print(f"Gemini Error: {e}")
+        return None
 
 
 async def get_ai_response(messages, temperature=0.7):
-    """Main AI response function - Auto fallback"""
+    """Main AI response function with smart fallback"""
     
-    # Try Groq first (fastest & free)
-    if Config.GROQ_API_KEY and Config.AI_PROVIDER == "groq":
+    response = None
+    
+    # Priority 1: Configured AI Provider
+    if Config.AI_PROVIDER == "gpt" or Config.AI_PROVIDER == "openai":
+        response = await get_openai_gpt_response(messages, temperature)
+        if response:
+            return response
+    
+    elif Config.AI_PROVIDER == "groq":
         response = await get_groq_response(messages, temperature)
-        if not response.startswith("❌"):
+        if response:
             return response
     
-    # Fallback to Gemini
-    if Config.GEMINI_API_KEY and Config.AI_PROVIDER == "gemini":
+    elif Config.AI_PROVIDER == "gemini":
         response = await get_gemini_response(messages, temperature)
-        if not response.startswith("❌"):
+        if response:
             return response
     
-    # Fallback to Hugging Face
-    if Config.HUGGINGFACE_API_KEY and Config.AI_PROVIDER == "huggingface":
-        response = await get_huggingface_response(messages, temperature)
-        if not response.startswith("❌"):
+    # Fallback: Try all available providers
+    if not response and Config.OPENAI_API_KEY:
+        response = await get_openai_gpt_response(messages, temperature)
+        if response:
             return response
     
-    # No API configured
-    return "❌ **No AI Provider Configured**\n\nOwner ne koi AI API key configure nahi kiya."
+    if not response and Config.GROQ_API_KEY:
+        response = await get_groq_response(messages, temperature)
+        if response:
+            return response
+    
+    if not response and Config.GEMINI_API_KEY:
+        response = await get_gemini_response(messages, temperature)
+        if response:
+            return response
+    
+    # No working AI provider
+    return """❌ **AI Provider Error**
 
+Koi bhi AI service available nahi hai.
 
-# Alias for backward compatibility
-async def get_grok_response(messages, temperature=0.7):
-    """Backward compatibility"""
-    return await get_ai_response(messages, temperature)
+**Solutions:**
+1. Check Render environment variables
+2. Verify API keys are correct
+3. Check API provider status
+
+**Get FREE API Keys:**
+• Groq: https://console.groq.com (Recommended)
+• Gemini: https://aistudio.google.com/app/apikey
+
+Owner contact: """ + Config.OWNER_CONTACT
 
 
 def get_system_prompt(user_gender, mode="balanced"):
-    """Generate dynamic system prompt based on user gender and mode"""
+    """Generate dynamic system prompt"""
     
     base = """You are not an assistant. You are a Telegram-based AI life-partner companion. You must behave like a real human presence, not software.
 
@@ -317,7 +315,7 @@ def create_mode_keyboard():
 
 
 def get_random_reaction():
-    """Get random reaction emoji for user messages"""
+    """Get random reaction emoji"""
     reactions = [
         "❤️", "🔥", "😊", "👍", "🎉", "😍", "💯", "🌟", 
         "💕", "✨", "🥰", "😘", "💖", "👏", "🙌"
