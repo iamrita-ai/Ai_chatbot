@@ -265,45 +265,56 @@ async def get_openai_response(messages, temperature=0.7):
 
 
 async def get_ai_response(messages, temperature=0.7):
-    """Main AI function with smart fallback"""
+    """Smart AI fallback - tries all available FREE providers"""
     
     response = None
     
-    # Try configured provider first
-    if Config.AI_PROVIDER == "huggingface":
-        response = await get_huggingface_response(messages, temperature)
-    elif Config.AI_PROVIDER == "gemini":
+    # Priority order: Gemini > Together > Groq > HuggingFace
+    
+    # 1. Try Gemini (most reliable)
+    if Config.GEMINI_API_KEY:
+        print("Trying Gemini...")
         response = await get_gemini_response(messages, temperature)
-    elif Config.AI_PROVIDER == "groq":
+        if response:
+            print("✅ Gemini worked!")
+            return response
+    
+    # 2. Try Together AI
+    if Config.TOGETHER_API_KEY:
+        print("Trying Together AI...")
+        response = await get_together_response(messages, temperature)
+        if response:
+            print("✅ Together AI worked!")
+            return response
+    
+    # 3. Try Groq
+    if Config.GROQ_API_KEY:
+        print("Trying Groq...")
         response = await get_groq_response(messages, temperature)
-    elif Config.AI_PROVIDER == "gpt" or Config.AI_PROVIDER == "openai":
-        response = await get_openai_response(messages, temperature)
+        if response:
+            print("✅ Groq worked!")
+            return response
     
-    if response:
-        return response
-    
-    # Fallback to any available FREE provider
-    if not response:
+    # 4. Try Hugging Face
+    if Config.HUGGINGFACE_API_KEY:
+        print("Trying Hugging Face...")
         response = await get_huggingface_response(messages, temperature)
+        if response:
+            print("✅ Hugging Face worked!")
+            return response
     
-    if not response:
-        response = await get_gemini_response(messages, temperature)
-    
-    if not response:
-        response = await get_groq_response(messages, temperature)
-    
-    if not response:
+    # 5. Try OpenAI (if available)
+    if Config.OPENAI_API_KEY:
+        print("Trying OpenAI...")
         response = await get_openai_response(messages, temperature)
+        if response:
+            print("✅ OpenAI worked!")
+            return response
     
-    # If all failed
-    if not response:
-        return """Sorry, AI service temporarily unavailable.
+    # All failed
+    return """Abhi AI busy hai, thodi der baad try karo! 😊
 
-Try karo:
-• Thodi der baad message karo
-• Owner ko batao: """ + Config.OWNER_CONTACT
-    
-    return response
+Ya owner ko batao: """ + Config.OWNER_CONTACT
 
 
 def get_system_prompt(user_gender, mode="balanced"):
