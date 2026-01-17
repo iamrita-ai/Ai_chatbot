@@ -5,9 +5,7 @@ from pyrogram import Client
 from pyrogram.errors import UserNotParticipant, ChatAdminRequired, UsernameNotOccupied, ChannelPrivate, UserIsBlocked
 import random
 import asyncio
-
-# Global variable to store working endpoint
-WORKING_ENDPOINT = None
+import json
 
 
 async def check_force_sub(client: Client, user_id: int):
@@ -64,148 +62,113 @@ async def check_force_sub(client: Client, user_id: int):
 
 
 async def get_rapidapi_grok_response(messages, temperature=0.7):
-    """Get response from RapidAPI Grok - Auto-detect working endpoint"""
-    global WORKING_ENDPOINT
+    """Get response from RapidAPI Grok 3.0 - EXACT FORMAT FROM CODE SNIPPET"""
     
     if not Config.RAPIDAPI_KEY:
         return "❌ **RapidAPI Key Missing**\n\nOwner ne API key configure nahi kiya."
     
-    # Prepare message content
-    conversation = ""
-    user_message = ""
+    # Prepare messages in exact format
+    formatted_messages = []
     
     for msg in messages:
-        role = msg.get("role", "")
+        role = msg.get("role", "user")
         content = msg.get("content", "")
         
-        if role == "system":
-            conversation += f"{content}\n\n"
-        elif role == "user":
-            user_message = content
-            conversation += f"User: {content}\n"
-        elif role == "assistant":
-            conversation += f"Assistant: {content}\n"
+        # RapidAPI Grok accepts: user, assistant, system
+        formatted_messages.append({
+            "role": role,
+            "content": content
+        })
     
-    # If we already found a working endpoint, use it
-    if WORKING_ENDPOINT:
-        endpoints_to_try = [WORKING_ENDPOINT] + [e for e in Config.RAPIDAPI_ENDPOINTS if e != WORKING_ENDPOINT]
-    else:
-        endpoints_to_try = Config.RAPIDAPI_ENDPOINTS
+    # Exact payload format from code snippet
+    payload = {
+        "model": Config.RAPIDAPI_MODEL,  # "Grok-3"
+        "messages": formatted_messages
+    }
     
-    # Try each endpoint
-    for endpoint_config in endpoints_to_try:
-        try:
-            headers = {
-                "content-type": "application/json",
-                "X-RapidAPI-Key": Config.RAPIDAPI_KEY,
-                "X-RapidAPI-Host": endpoint_config["host"]
-            }
-            
-            # Try different payload formats
-            payloads = [
-                # Format 1: OpenAI-like
-                {
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": 1000
-                },
-                # Format 2: Simple prompt
-                {
-                    "prompt": conversation,
-                    "temperature": temperature
-                },
-                # Format 3: Query format
-                {
-                    "query": user_message,
-                    "context": conversation,
-                    "temperature": temperature
-                },
-                # Format 4: Message format
-                {
-                    "message": user_message,
-                    "temperature": temperature
-                }
-            ]
-            
-            for payload in payloads:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            endpoint_config["url"],
-                            headers=headers,
-                            json=payload,
-                            timeout=aiohttp.ClientTimeout(total=20)
-                        ) as response:
-                            
-                            if response.status == 200:
-                                data = await response.json()
-                                
-                                # Try to extract response from different formats
-                                result = None
-                                
-                                if isinstance(data, dict):
-                                    # Try different response keys
-                                    for key in ["response", "text", "message", "output", "result", "answer", "completion"]:
-                                        if key in data:
-                                            result = data[key]
-                                            break
-                                    
-                                    # Try OpenAI format
-                                    if not result and "choices" in data:
-                                        try:
-                                            result = data["choices"][0]["message"]["content"]
-                                        except:
-                                            pass
-                                    
-                                    # Try nested response
-                                    if not result and "data" in data:
-                                        if isinstance(data["data"], dict):
-                                            for key in ["response", "text", "message"]:
-                                                if key in data["data"]:
-                                                    result = data["data"][key]
-                                                    break
-                                
-                                elif isinstance(data, str):
-                                    result = data
-                                
-                                # If we got a valid response
-                                if result and len(str(result).strip()) > 0:
-                                    # Save working endpoint
-                                    WORKING_ENDPOINT = endpoint_config
-                                    print(f"✅ Working endpoint found: {endpoint_config['name']}")
-                                    return str(result).strip()
-                            
-                            elif response.status == 404:
-                                # Wrong endpoint, try next
-                                continue
-                                
-                except asyncio.TimeoutError:
-                    continue
-                except aiohttp.ClientError:
-                    continue
-                except Exception as e:
-                    print(f"Payload attempt failed: {e}")
-                    continue
-        
-        except Exception as e:
-            print(f"Endpoint {endpoint_config['name']} failed: {e}")
-            continue
+    # Exact headers from code snippet
+    headers = {
+        "x-rapidapi-key": Config.RAPIDAPI_KEY,
+        "x-rapidapi-host": Config.RAPIDAPI_HOST,
+        "Content-Type": "application/json"
+    }
     
-    # If all endpoints failed
-    return """❌ **RapidAPI Connection Failed**
-
-Possible issues:
-• API key invalid hai
-• Subscription inactive hai
-• Monthly quota khatam ho gaya
-• Wrong Grok API select kiya RapidAPI par
-
-**Solution:**
-1. RapidAPI dashboard check karo: https://rapidapi.com/
-2. Grok 3.0 AI subscription verify karo
-3. API key regenerate karke phir se try karo
-
-Owner contact: https://t.me/technicalserena"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                Config.RAPIDAPI_URL,  # https://grok-3-0-ai.p.rapidapi.com/
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                print(f"✅ RapidAPI Status: {response.status}")  # Debug log
+                
+                if response.status == 200:
+                    data = await response.json()
+                    print(f"✅ RapidAPI Response received")  # Debug log
+                    
+                    # Try to extract response from different possible formats
+                    try:
+                        # Format 1: OpenAI-like (most common)
+                        if "choices" in data and len(data["choices"]) > 0:
+                            return data["choices"][0]["message"]["content"]
+                        
+                        # Format 2: Direct response field
+                        elif "response" in data:
+                            return data["response"]
+                        
+                        # Format 3: Text field
+                        elif "text" in data:
+                            return data["text"]
+                        
+                        # Format 4: Message field
+                        elif "message" in data:
+                            if isinstance(data["message"], str):
+                                return data["message"]
+                            elif isinstance(data["message"], dict) and "content" in data["message"]:
+                                return data["message"]["content"]
+                        
+                        # Format 5: Completion field
+                        elif "completion" in data:
+                            return data["completion"]
+                        
+                        # Format 6: Result field
+                        elif "result" in data:
+                            return data["result"]
+                        
+                        # If none matched, return raw data for debugging
+                        else:
+                            return f"⚠️ Response format unknown:\n\n{json.dumps(data, indent=2)[:500]}"
+                    
+                    except Exception as e:
+                        return f"❌ Error parsing response: {str(e)}\n\nRaw data: {str(data)[:300]}"
+                
+                elif response.status == 401:
+                    return "❌ **Invalid API Key**\n\nRapidAPI key invalid hai. Check karo."
+                
+                elif response.status == 403:
+                    error_text = await response.text()
+                    return f"❌ **Access Denied**\n\nSubscription inactive ho sakta hai.\n\n{error_text[:200]}"
+                
+                elif response.status == 429:
+                    return "⏳ **Rate Limit Exceeded**\n\nMonthly quota khatam ho gaya. Dashboard check karo."
+                
+                elif response.status == 500:
+                    return "⚠️ **Server Error**\n\nGrok API server issue hai. Thodi der baad try karo."
+                
+                else:
+                    error_text = await response.text()
+                    return f"❌ **HTTP Error {response.status}**\n\n{error_text[:300]}"
+    
+    except asyncio.TimeoutError:
+        return "⏳ **Timeout**\n\nRequest mein bahut time lag raha hai. Phir try karo."
+    
+    except aiohttp.ClientError as e:
+        return f"❌ **Network Error**\n\n{str(e)[:200]}"
+    
+    except Exception as e:
+        return f"❌ **Unknown Error**\n\n{str(e)[:200]}"
 
 
 async def get_grok_response(messages, temperature=0.7):
