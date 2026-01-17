@@ -2,7 +2,8 @@ import aiohttp
 from config import Config
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram import Client
-from pyrogram.errors import UserNotParticipant, ChatAdminRequired, UsernameNotOccupied
+from pyrogram.errors import UserNotParticipant, ChatAdminRequired, UsernameNotOccupied, ChannelPrivate
+import random
 
 async def check_force_sub(client: Client, user_id: int):
     """Check if user is subscribed to force sub channel"""
@@ -10,29 +11,42 @@ async def check_force_sub(client: Client, user_id: int):
         return True, None
     
     try:
-        # Remove @ if present
-        channel = Config.FORCE_SUB_CHANNEL.replace("@", "")
+        # Remove @ and https://t.me/ if present
+        channel = Config.FORCE_SUB_CHANNEL.replace("@", "").replace("https://t.me/", "").strip()
         
-        # Check if user is member
-        member = await client.get_chat_member(f"@{channel}", user_id)
-        if member.status not in ["creator", "administrator", "member"]:
+        # Try to get chat member status
+        try:
+            # Try with @ first
+            member = await client.get_chat_member(f"@{channel}", user_id)
+        except:
+            # Try with -100 prefix if it's a channel ID
+            try:
+                member = await client.get_chat_member(int(channel), user_id)
+            except:
+                # Try without any prefix
+                member = await client.get_chat_member(channel, user_id)
+        
+        # Check if user is actually a member
+        if member.status in ["creator", "administrator", "member"]:
+            return True, None
+        else:
+            # Not a member
             invite_link = f"https://t.me/{channel}"
             buttons = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
                 [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_sub")]
             ])
             return False, buttons
-        return True, None
+            
     except UserNotParticipant:
-        invite_link = f"https://t.me/{Config.FORCE_SUB_CHANNEL.replace('@', '')}"
+        invite_link = f"https://t.me/{channel}"
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
             [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_sub")]
         ])
         return False, buttons
-    except (ChatAdminRequired, UsernameNotOccupied):
-        return True, None
     except Exception as e:
+        # If error in checking, allow user (don't block due to technical error)
         print(f"Force sub check error: {e}")
         return True, None
 
@@ -154,3 +168,23 @@ def create_mode_keyboard():
             InlineKeyboardButton("⚖️ Balanced", callback_data="mode_balanced")
         ]
     ])
+
+
+def get_random_reaction():
+    """Get random reaction emoji for user messages"""
+    reactions = [
+        "❤️", "🔥", "😊", "👍", "🎉", "😍", "💯", "🌟", 
+        "💕", "✨", "🥰", "😘", "💖", "👏", "🙌"
+    ]
+    return random.choice(reactions)
+
+
+async def send_to_log_channel(client: Client, message_text: str):
+    """Send message to log channel"""
+    if not Config.LOG_CHANNEL:
+        return
+    
+    try:
+        await client.send_message(Config.LOG_CHANNEL, message_text)
+    except Exception as e:
+        print(f"Log channel error: {e}")
