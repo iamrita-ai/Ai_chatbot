@@ -45,66 +45,99 @@ async def check_force_sub(client: Client, user_id: int):
 
 
 async def get_huggingface_response(messages, temperature=0.7):
-    """Hugging Face API - 100% FREE"""
+    """Hugging Face API - FREE with better error handling"""
     
     if not Config.HUGGINGFACE_API_KEY:
+        print("HF: No API key")
         return None
     
-    # Combine messages into conversation
-    conversation = ""
-    for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        
-        if role == "system":
-            conversation += f"{content}\n\n"
-        elif role == "user":
-            conversation += f"User: {content}\n"
-        elif role == "assistant":
-            conversation += f"Bot: {content}\n"
+    # Extract last user message
+    user_msg = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            user_msg = msg.get("content", "")
+            break
     
-    conversation += "Bot:"
+    if not user_msg:
+        return None
     
     headers = {
         "Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    # Use conversational model
-    payload = {
-        "inputs": conversation,
-        "parameters": {
-            "max_length": 500,
-            "temperature": temperature,
-            "return_full_text": False
-        }
-    }
+    # Try multiple models (fallback system)
+    models = [
+        "microsoft/DialoGPT-medium",
+        "facebook/blenderbot-400M-distill",
+        "google/flan-t5-large"
+    ]
     
-    url = f"https://api-inference.huggingface.co/models/{Config.HUGGINGFACE_MODEL}"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                
-                if response.status == 200:
-                    data = await response.json()
+    for model in models:
+        try:
+            payload = {
+                "inputs": user_msg,
+                "parameters": {
+                    "max_new_tokens": 250,
+                    "temperature": temperature,
+                    "return_full_text": False
+                },
+                "options": {
+                    "wait_for_model": True,
+                    "use_cache": False
+                }
+            }
+            
+            url = f"https://api-inference.huggingface.co/models/{model}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, 
+                    headers=headers, 
+                    json=payload, 
+                    timeout=aiohttp.ClientTimeout(total=60)  # Longer timeout
+                ) as response:
                     
-                    # Handle different response formats
-                    if isinstance(data, list) and len(data) > 0:
-                        if "generated_text" in data[0]:
-                            return data[0]["generated_text"].strip()
-                        elif "summary_text" in data[0]:
-                            return data[0]["summary_text"].strip()
+                    print(f"HF {model}: Status {response.status}")
                     
-                    return None
-                
-                else:
-                    print(f"HF Error: {response.status}")
-                    return None
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Handle response
+                        if isinstance(data, list) and len(data) > 0:
+                            result = data[0]
+                            
+                            if "generated_text" in result:
+                                text = result["generated_text"].strip()
+                                if text and len(text) > 5:
+                                    print(f"HF Success: {model}")
+                                    return text
+                            
+                            elif "summary_text" in result:
+                                text = result["summary_text"].strip()
+                                if text:
+                                    return text
+                        
+                        elif isinstance(data, dict):
+                            if "generated_text" in data:
+                                return data["generated_text"].strip()
+                    
+                    elif response.status == 503:
+                        # Model loading
+                        print(f"HF: Model {model} loading...")
+                        continue
+                    
+                    else:
+                        error_text = await response.text()
+                        print(f"HF Error {response.status}: {error_text[:100]}")
+                        continue
+        
+        except Exception as e:
+            print(f"HF Exception ({model}): {e}")
+            continue
     
-    except Exception as e:
-        print(f"HF Exception: {e}")
-        return None
+    print("HF: All models failed")
+    return None
 
 
 async def get_gemini_response(messages, temperature=0.7):
