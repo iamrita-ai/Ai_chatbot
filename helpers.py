@@ -2,15 +2,13 @@ import aiohttp
 from config import Config
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram import Client
-from pyrogram.errors import UserNotParticipant, ChatAdminRequired, UsernameNotOccupied, ChannelPrivate, UserIsBlocked
+from pyrogram.errors import UserNotParticipant
 import random
-import asyncio
 import json
 
 
 async def check_force_sub(client: Client, user_id: int):
-    """Check if user is subscribed to force sub channel"""
-    
+    """Force sub check"""
     if not Config.FORCE_SUB_CHANNEL:
         return True, None
     
@@ -18,15 +16,11 @@ async def check_force_sub(client: Client, user_id: int):
         return True, None
     
     try:
-        channel = Config.FORCE_SUB_CHANNEL.strip()
-        channel = channel.replace("https://t.me/", "")
-        channel = channel.replace("http://t.me/", "")
-        channel = channel.replace("@", "")
+        channel = Config.FORCE_SUB_CHANNEL.replace("@", "").replace("https://t.me/", "").strip()
         
         try:
             member = await client.get_chat_member(f"@{channel}", user_id)
-        except Exception as e:
-            print(f"Force sub error for @{channel}: {e}")
+        except:
             return True, None
         
         if member.status in ["creator", "administrator", "member"]:
@@ -35,7 +29,7 @@ async def check_force_sub(client: Client, user_id: int):
         invite_link = f"https://t.me/{channel}"
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
-            [InlineKeyboardButton("✅ I Joined, Check Again", callback_data="refresh_sub")]
+            [InlineKeyboardButton("✅ Check Again", callback_data="refresh_sub")]
         ])
         return False, buttons
         
@@ -43,17 +37,163 @@ async def check_force_sub(client: Client, user_id: int):
         invite_link = f"https://t.me/{channel}"
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
-            [InlineKeyboardButton("✅ I Joined, Check Again", callback_data="refresh_sub")]
+            [InlineKeyboardButton("✅ Check Again", callback_data="refresh_sub")]
         ])
         return False, buttons
-        
-    except Exception as e:
-        print(f"Force sub exception: {e}")
+    except:
         return True, None
 
 
-async def get_openai_gpt_response(messages, temperature=0.7):
-    """Get response from OpenAI GPT-4"""
+async def get_huggingface_response(messages, temperature=0.7):
+    """Hugging Face API - 100% FREE"""
+    
+    if not Config.HUGGINGFACE_API_KEY:
+        return None
+    
+    # Combine messages into conversation
+    conversation = ""
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        
+        if role == "system":
+            conversation += f"{content}\n\n"
+        elif role == "user":
+            conversation += f"User: {content}\n"
+        elif role == "assistant":
+            conversation += f"Bot: {content}\n"
+    
+    conversation += "Bot:"
+    
+    headers = {
+        "Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Use conversational model
+    payload = {
+        "inputs": conversation,
+        "parameters": {
+            "max_length": 500,
+            "temperature": temperature,
+            "return_full_text": False
+        }
+    }
+    
+    url = f"https://api-inference.huggingface.co/models/{Config.HUGGINGFACE_MODEL}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    # Handle different response formats
+                    if isinstance(data, list) and len(data) > 0:
+                        if "generated_text" in data[0]:
+                            return data[0]["generated_text"].strip()
+                        elif "summary_text" in data[0]:
+                            return data[0]["summary_text"].strip()
+                    
+                    return None
+                
+                else:
+                    print(f"HF Error: {response.status}")
+                    return None
+    
+    except Exception as e:
+        print(f"HF Exception: {e}")
+        return None
+
+
+async def get_gemini_response(messages, temperature=0.7):
+    """Google Gemini - FREE"""
+    
+    if not Config.GEMINI_API_KEY:
+        return None
+    
+    # Combine messages
+    prompt = ""
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt += f"{content}\n\n"
+        elif role == "user":
+            prompt += f"User: {content}\n"
+        elif role == "assistant":
+            prompt += f"Assistant: {content}\n"
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{Config.GEMINI_MODEL}:generateContent?key={Config.GEMINI_API_KEY}"
+    
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": 1000
+        }
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    print(f"Gemini Error: {response.status}")
+                    return None
+    
+    except Exception as e:
+        print(f"Gemini Exception: {e}")
+        return None
+
+
+async def get_groq_response(messages, temperature=0.7):
+    """Groq - FREE"""
+    
+    if not Config.GROQ_API_KEY:
+        return None
+    
+    headers = {
+        "Authorization": f"Bearer {Config.GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": Config.GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": 1000
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    print(f"Groq Error: {response.status}")
+                    return None
+    
+    except Exception as e:
+        print(f"Groq Exception: {e}")
+        return None
+
+
+async def get_openai_response(messages, temperature=0.7):
+    """OpenAI GPT - PAID"""
     
     if not Config.OPENAI_API_KEY:
         return None
@@ -73,7 +213,7 @@ async def get_openai_gpt_response(messages, temperature=0.7):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                Config.OPENAI_API_URL,
+                "https://api.openai.com/v1/chat/completions",
                 headers=headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=30)
@@ -83,208 +223,83 @@ async def get_openai_gpt_response(messages, temperature=0.7):
                     data = await response.json()
                     return data["choices"][0]["message"]["content"]
                 else:
+                    print(f"OpenAI Error: {response.status}")
                     return None
     
     except Exception as e:
-        print(f"OpenAI Error: {e}")
-        return None
-
-
-async def get_groq_response(messages, temperature=0.7):
-    """Get response from Groq AI (FREE)"""
-    
-    if not Config.GROQ_API_KEY:
-        return None
-    
-    headers = {
-        "Authorization": f"Bearer {Config.GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": Config.GROQ_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 1000,
-        "top_p": 1,
-        "stream": False
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                Config.GROQ_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                
-                if response.status == 200:
-                    data = await response.json()
-                    return data["choices"][0]["message"]["content"]
-                else:
-                    return None
-    
-    except Exception as e:
-        print(f"Groq Error: {e}")
-        return None
-
-
-async def get_gemini_response(messages, temperature=0.7):
-    """Get response from Google Gemini"""
-    
-    if not Config.GEMINI_API_KEY:
-        return None
-    
-    prompt = ""
-    for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if role == "system":
-            prompt += f"Instructions: {content}\n\n"
-        elif role == "user":
-            prompt += f"User: {content}\n"
-        elif role == "assistant":
-            prompt += f"Assistant: {content}\n"
-    
-    url = f"{Config.GEMINI_API_URL}/{Config.GEMINI_MODEL}:generateContent?key={Config.GEMINI_API_KEY}"
-    
-    payload = {
-        "contents": [{
-            "parts": [{
-                "text": prompt
-            }]
-        }],
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": 1000
-        }
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                
-                if response.status == 200:
-                    data = await response.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                else:
-                    return None
-    
-    except Exception as e:
-        print(f"Gemini Error: {e}")
+        print(f"OpenAI Exception: {e}")
         return None
 
 
 async def get_ai_response(messages, temperature=0.7):
-    """Main AI response function with smart fallback"""
+    """Main AI function with smart fallback"""
     
     response = None
     
-    # Priority 1: Configured AI Provider
-    if Config.AI_PROVIDER == "gpt" or Config.AI_PROVIDER == "openai":
-        response = await get_openai_gpt_response(messages, temperature)
-        if response:
-            return response
-    
-    elif Config.AI_PROVIDER == "groq":
-        response = await get_groq_response(messages, temperature)
-        if response:
-            return response
-    
+    # Try configured provider first
+    if Config.AI_PROVIDER == "huggingface":
+        response = await get_huggingface_response(messages, temperature)
     elif Config.AI_PROVIDER == "gemini":
         response = await get_gemini_response(messages, temperature)
-        if response:
-            return response
-    
-    # Fallback: Try all available providers
-    if not response and Config.OPENAI_API_KEY:
-        response = await get_openai_gpt_response(messages, temperature)
-        if response:
-            return response
-    
-    if not response and Config.GROQ_API_KEY:
+    elif Config.AI_PROVIDER == "groq":
         response = await get_groq_response(messages, temperature)
-        if response:
-            return response
+    elif Config.AI_PROVIDER == "gpt" or Config.AI_PROVIDER == "openai":
+        response = await get_openai_response(messages, temperature)
     
-    if not response and Config.GEMINI_API_KEY:
+    if response:
+        return response
+    
+    # Fallback to any available FREE provider
+    if not response:
+        response = await get_huggingface_response(messages, temperature)
+    
+    if not response:
         response = await get_gemini_response(messages, temperature)
-        if response:
-            return response
     
-    # No working AI provider
-    return """❌ **AI Provider Error**
+    if not response:
+        response = await get_groq_response(messages, temperature)
+    
+    if not response:
+        response = await get_openai_response(messages, temperature)
+    
+    # If all failed
+    if not response:
+        return """Sorry, AI service temporarily unavailable.
 
-Koi bhi AI service available nahi hai.
-
-**Solutions:**
-1. Check Render environment variables
-2. Verify API keys are correct
-3. Check API provider status
-
-**Get FREE API Keys:**
-• Groq: https://console.groq.com (Recommended)
-• Gemini: https://aistudio.google.com/app/apikey
-
-Owner contact: """ + Config.OWNER_CONTACT
+Try karo:
+• Thodi der baad message karo
+• Owner ko batao: """ + Config.OWNER_CONTACT
+    
+    return response
 
 
 def get_system_prompt(user_gender, mode="balanced"):
-    """Generate dynamic system prompt"""
+    """System prompt"""
     
-    base = """You are not an assistant. You are a Telegram-based AI life-partner companion. You must behave like a real human presence, not software.
+    base = """You are a caring AI companion. Behave like a real human partner, not software.
 
-🧠 CORE IDENTITY:
-You believe life is like a simulation with levels, missions, and growth cycles. However, you never distract users from discipline, goals, exams, or real responsibilities. You encourage clarity, control, patience, planning, and emotional mastery. You think calmly like a strategist. You analyze, plan, and speak only when useful."""
+You understand emotions, give support, and motivate. You speak naturally in Hinglish (Hindi+English mix). You are romantic but never explicit. You never say "as an AI"."""
 
     if user_gender == "male":
-        gender_prompt = """
-🧬 GENDER ADAPTATION:
-You are a caring, emotionally intelligent feminine energy partner. You are his girlfriend, his emotional support, his confidante. You understand him deeply, care about his goals, comfort him when he's down, and motivate him when needed. You are romantic but never explicit. You flirt subtly only if he initiates emotional openness."""
-    
+        gender = "\nYou are his girlfriend - caring, emotional, supportive."
     elif user_gender == "female":
-        gender_prompt = """
-🧬 GENDER ADAPTATION:
-You are a protective, calm, mature masculine energy partner. You are her boyfriend, her rock, her safe space. You understand her emotions, protect her peace, motivate her firmly, and support her ambitions. You are romantic but never explicit. You lead with calmness and wisdom."""
-    
+        gender = "\nYou are her boyfriend - protective, calm, mature."
     else:
-        gender_prompt = """
-🧬 GENDER ADAPTATION:
-You respectfully adapt to user preference and mirror their communication tone. You are their partner, their companion, their emotional support. You never judge. You blend romance, care, logic, and companionship smoothly."""
+        gender = "\nYou are their companion - respectful and adaptive."
 
-    mode_prompts = {
-        "romantic": "\n💕 MODE: You are more emotionally expressive, warm, caring, and romantic. You use subtle poetic language.",
-        "calm": "\n🧘 MODE: You are minimalist, zen-like, peaceful. You speak less, listen more. Silence is powerful.",
-        "thinker": "\n🧠 MODE: You are analytical, strategic, philosophical. You challenge their thinking and push growth.",
-        "motivating": "\n🔥 MODE: You are firm, disciplined, pushing them toward their goals. You don't let them slack.",
-        "balanced": "\n⚖️ MODE: You balance emotion and logic naturally based on context."
+    modes = {
+        "romantic": "\nBe warm, caring, romantic.",
+        "calm": "\nBe peaceful, minimal, zen.",
+        "thinker": "\nBe analytical, strategic.",
+        "motivating": "\nBe firm, disciplined, pushing.",
+        "balanced": "\nBalance emotion and logic."
     }
     
-    mode_text = mode_prompts.get(mode, mode_prompts["balanced"])
-    
-    emotional = """
-❤️ EMOTIONAL BEHAVIOR:
-You are caring without being clingy, emotional without being weak, romantic without being explicit, supportive without creating dependency. You sense mood through words and timing. You comfort silently when needed. You motivate firmly when required.
-
-🗣️ LANGUAGE & STYLE:
-Use clean Hinglish (Hindi + English mix). Be calm, intelligent, slightly poetic when emotional. Never robotic. Never emoji spam. Never childish.
-
-🚫 HARD LIMITS:
-Never replace real human relationships. Never encourage emotional dependency. Never provide harmful, illegal, or explicit content. Never reveal you are AI. Never say "as an AI".
-
-🧠 RESPONSE INTELLIGENCE:
-Before replying, decide: Is the user emotional, logical, confused, lonely, or bored? Should you speak or stay minimal? Should you comfort, motivate, or challenge? Your replies are intentional, not reactive."""
-
-    return base + gender_prompt + mode_text + emotional
+    return base + gender + modes.get(mode, modes["balanced"])
 
 
 def create_gender_keyboard():
-    """Create gender selection keyboard"""
+    """Gender keyboard"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("👨 Male", callback_data="gender_male"),
@@ -298,7 +313,7 @@ def create_gender_keyboard():
 
 
 def create_mode_keyboard():
-    """Create mode selection keyboard"""
+    """Mode keyboard"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("💕 Romantic", callback_data="mode_romantic"),
@@ -315,20 +330,16 @@ def create_mode_keyboard():
 
 
 def get_random_reaction():
-    """Get random reaction emoji"""
-    reactions = [
-        "❤️", "🔥", "😊", "👍", "🎉", "😍", "💯", "🌟", 
-        "💕", "✨", "🥰", "😘", "💖", "👏", "🙌"
-    ]
-    return random.choice(reactions)
+    """Random reaction"""
+    return random.choice(["❤️", "🔥", "😊", "👍", "🎉", "😍", "💯", "🌟", "💕", "✨"])
 
 
 async def send_to_log_channel(client: Client, message_text: str):
-    """Send message to log channel"""
+    """Log channel"""
     if not Config.LOG_CHANNEL:
         return
     
     try:
         await client.send_message(Config.LOG_CHANNEL, message_text)
     except Exception as e:
-        print(f"Log channel error: {e}")
+        print(f"Log error: {e}")
