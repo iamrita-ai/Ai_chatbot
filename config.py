@@ -10,7 +10,7 @@ class Config:
     # Bot Name (Optional - Default set)
     BOT_NAME = getenv("BOT_NAME", "AI Life Partner")
     
-    # RapidAPI Configuration (SIMPLIFIED)
+    # RapidAPI Configuration (PRIMARY)
     RAPIDAPI_KEY = getenv("RAPIDAPI_KEY", "")
     RAPIDAPI_APP_ID = getenv("RAPIDAPI_APP_ID", "8308057")
     
@@ -37,6 +37,11 @@ class Config:
             "name": "Grok 2 AI"
         }
     ]
+    
+    # X.AI Grok (BACKUP - Optional)
+    GROK_API_KEY = getenv("GROK_API_KEY", "")
+    GROK_API_URL = getenv("GROK_API_URL", "https://api.x.ai/v1/chat/completions")
+    GROK_MODEL = getenv("GROK_MODEL", "grok-4-latest")
     
     # Database Configuration
     MONGO_URI = getenv("MONGO_URI", "")
