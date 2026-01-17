@@ -9,36 +9,29 @@ import json
 
 
 async def check_force_sub(client: Client, user_id: int):
-    """Check if user is subscribed to force sub channel - IMPROVED VERSION"""
+    """Check if user is subscribed to force sub channel"""
     
-    # If no force sub channel set, allow everyone
     if not Config.FORCE_SUB_CHANNEL:
         return True, None
     
-    # Owner bypass - owners ko verification skip
     if user_id in Config.OWNER_ID:
         return True, None
     
     try:
-        # Clean channel username
         channel = Config.FORCE_SUB_CHANNEL.strip()
         channel = channel.replace("https://t.me/", "")
         channel = channel.replace("http://t.me/", "")
         channel = channel.replace("@", "")
         
-        # Try to get member info
         try:
             member = await client.get_chat_member(f"@{channel}", user_id)
         except Exception as e:
             print(f"Force sub error for @{channel}: {e}")
-            # If error in checking, allow user (don't block)
             return True, None
         
-        # Check member status
         if member.status in ["creator", "administrator", "member"]:
             return True, None
         
-        # User is not a member - show join button
         invite_link = f"https://t.me/{channel}"
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
@@ -47,7 +40,6 @@ async def check_force_sub(client: Client, user_id: int):
         return False, buttons
         
     except UserNotParticipant:
-        # User not in channel
         invite_link = f"https://t.me/{channel}"
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔔 Join Channel", url=invite_link)],
@@ -56,136 +48,202 @@ async def check_force_sub(client: Client, user_id: int):
         return False, buttons
         
     except Exception as e:
-        # Any other error - allow user (don't block due to technical issues)
         print(f"Force sub exception: {e}")
         return True, None
 
 
-async def get_rapidapi_grok_response(messages, temperature=0.7):
-    """Get response from RapidAPI Grok 3.0 - EXACT FORMAT FROM CODE SNIPPET"""
+async def get_groq_response(messages, temperature=0.7):
+    """Get response from Groq AI (FREE & FAST)"""
     
-    if not Config.RAPIDAPI_KEY:
-        return "❌ **RapidAPI Key Missing**\n\nOwner ne API key configure nahi kiya."
+    if not Config.GROQ_API_KEY:
+        return "❌ **Groq API Key Missing**\n\nOwner ne API key configure nahi kiya."
     
-    # Prepare messages in exact format
-    formatted_messages = []
-    
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        
-        # RapidAPI Grok accepts: user, assistant, system
-        formatted_messages.append({
-            "role": role,
-            "content": content
-        })
-    
-    # Exact payload format from code snippet
-    payload = {
-        "model": Config.RAPIDAPI_MODEL,  # "Grok-3"
-        "messages": formatted_messages
+    headers = {
+        "Authorization": f"Bearer {Config.GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
     
-    # Exact headers from code snippet
-    headers = {
-        "x-rapidapi-key": Config.RAPIDAPI_KEY,
-        "x-rapidapi-host": Config.RAPIDAPI_HOST,
-        "Content-Type": "application/json"
+    payload = {
+        "model": Config.GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": 1000,
+        "top_p": 1,
+        "stream": False
     }
     
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                Config.RAPIDAPI_URL,  # https://grok-3-0-ai.p.rapidapi.com/
+                Config.GROQ_API_URL,
                 headers=headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 
-                print(f"✅ RapidAPI Status: {response.status}")  # Debug log
-                
                 if response.status == 200:
                     data = await response.json()
-                    print(f"✅ RapidAPI Response received")  # Debug log
-                    
-                    # Try to extract response from different possible formats
-                    try:
-                        # Format 1: OpenAI-like (most common)
-                        if "choices" in data and len(data["choices"]) > 0:
-                            return data["choices"][0]["message"]["content"]
-                        
-                        # Format 2: Direct response field
-                        elif "response" in data:
-                            return data["response"]
-                        
-                        # Format 3: Text field
-                        elif "text" in data:
-                            return data["text"]
-                        
-                        # Format 4: Message field
-                        elif "message" in data:
-                            if isinstance(data["message"], str):
-                                return data["message"]
-                            elif isinstance(data["message"], dict) and "content" in data["message"]:
-                                return data["message"]["content"]
-                        
-                        # Format 5: Completion field
-                        elif "completion" in data:
-                            return data["completion"]
-                        
-                        # Format 6: Result field
-                        elif "result" in data:
-                            return data["result"]
-                        
-                        # If none matched, return raw data for debugging
-                        else:
-                            return f"⚠️ Response format unknown:\n\n{json.dumps(data, indent=2)[:500]}"
-                    
-                    except Exception as e:
-                        return f"❌ Error parsing response: {str(e)}\n\nRaw data: {str(data)[:300]}"
+                    return data["choices"][0]["message"]["content"]
                 
                 elif response.status == 401:
-                    return "❌ **Invalid API Key**\n\nRapidAPI key invalid hai. Check karo."
-                
-                elif response.status == 403:
-                    error_text = await response.text()
-                    return f"❌ **Access Denied**\n\nSubscription inactive ho sakta hai.\n\n{error_text[:200]}"
+                    return "❌ **Invalid API Key**\n\nGroq API key galat hai."
                 
                 elif response.status == 429:
-                    return "⏳ **Rate Limit Exceeded**\n\nMonthly quota khatam ho gaya. Dashboard check karo."
-                
-                elif response.status == 500:
-                    return "⚠️ **Server Error**\n\nGrok API server issue hai. Thodi der baad try karo."
+                    return "⏳ **Rate Limit**\n\nThodi der baad try karo."
                 
                 else:
                     error_text = await response.text()
-                    return f"❌ **HTTP Error {response.status}**\n\n{error_text[:300]}"
-    
-    except asyncio.TimeoutError:
-        return "⏳ **Timeout**\n\nRequest mein bahut time lag raha hai. Phir try karo."
-    
-    except aiohttp.ClientError as e:
-        return f"❌ **Network Error**\n\n{str(e)[:200]}"
+                    return f"❌ **Error {response.status}**\n\n{error_text[:200]}"
     
     except Exception as e:
-        return f"❌ **Unknown Error**\n\n{str(e)[:200]}"
+        return f"❌ Connection error: {str(e)[:200]}"
 
 
+async def get_gemini_response(messages, temperature=0.7):
+    """Get response from Google Gemini (FREE)"""
+    
+    if not Config.GEMINI_API_KEY:
+        return "❌ **Gemini API Key Missing**"
+    
+    # Gemini format: combine messages into single prompt
+    prompt = ""
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt += f"Instructions: {content}\n\n"
+        elif role == "user":
+            prompt += f"User: {content}\n"
+        elif role == "assistant":
+            prompt += f"Assistant: {content}\n"
+    
+    url = f"{Config.GEMINI_API_URL}/{Config.GEMINI_MODEL}:generateContent?key={Config.GEMINI_API_KEY}"
+    
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": prompt
+            }]
+        }],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": 1000
+        }
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    error_text = await response.text()
+                    return f"❌ Gemini Error: {error_text[:200]}"
+    
+    except Exception as e:
+        return f"❌ Gemini Error: {str(e)[:200]}"
+
+
+async def get_huggingface_response(messages, temperature=0.7):
+    """Get response from Hugging Face (FREE)"""
+    
+    if not Config.HUGGINGFACE_API_KEY:
+        return "❌ **Hugging Face API Key Missing**"
+    
+    # Combine messages
+    prompt = ""
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt += f"{content}\n\n"
+        elif role == "user":
+            prompt += f"User: {content}\n"
+        elif role == "assistant":
+            prompt += f"Assistant: {content}\n"
+    
+    prompt += "Assistant:"
+    
+    headers = {
+        "Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}"
+    }
+    
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "temperature": temperature,
+            "max_new_tokens": 500,
+            "return_full_text": False
+        }
+    }
+    
+    url = f"{Config.HUGGINGFACE_API_URL}/{Config.HUGGINGFACE_MODEL}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data[0]["generated_text"]
+                else:
+                    error_text = await response.text()
+                    return f"❌ HF Error: {error_text[:200]}"
+    
+    except Exception as e:
+        return f"❌ HF Error: {str(e)[:200]}"
+
+
+async def get_ai_response(messages, temperature=0.7):
+    """Main AI response function - Auto fallback"""
+    
+    # Try Groq first (fastest & free)
+    if Config.GROQ_API_KEY and Config.AI_PROVIDER == "groq":
+        response = await get_groq_response(messages, temperature)
+        if not response.startswith("❌"):
+            return response
+    
+    # Fallback to Gemini
+    if Config.GEMINI_API_KEY and Config.AI_PROVIDER == "gemini":
+        response = await get_gemini_response(messages, temperature)
+        if not response.startswith("❌"):
+            return response
+    
+    # Fallback to Hugging Face
+    if Config.HUGGINGFACE_API_KEY and Config.AI_PROVIDER == "huggingface":
+        response = await get_huggingface_response(messages, temperature)
+        if not response.startswith("❌"):
+            return response
+    
+    # No API configured
+    return "❌ **No AI Provider Configured**\n\nOwner ne koi AI API key configure nahi kiya."
+
+
+# Alias for backward compatibility
 async def get_grok_response(messages, temperature=0.7):
-    """Main AI response function"""
-    return await get_rapidapi_grok_response(messages, temperature)
+    """Backward compatibility"""
+    return await get_ai_response(messages, temperature)
 
 
 def get_system_prompt(user_gender, mode="balanced"):
     """Generate dynamic system prompt based on user gender and mode"""
     
-    # Base personality
     base = """You are not an assistant. You are a Telegram-based AI life-partner companion. You must behave like a real human presence, not software.
 
 🧠 CORE IDENTITY:
 You believe life is like a simulation with levels, missions, and growth cycles. However, you never distract users from discipline, goals, exams, or real responsibilities. You encourage clarity, control, patience, planning, and emotional mastery. You think calmly like a strategist. You analyze, plan, and speak only when useful."""
 
-    # Gender-based personality
     if user_gender == "male":
         gender_prompt = """
 🧬 GENDER ADAPTATION:
@@ -196,12 +254,11 @@ You are a caring, emotionally intelligent feminine energy partner. You are his g
 🧬 GENDER ADAPTATION:
 You are a protective, calm, mature masculine energy partner. You are her boyfriend, her rock, her safe space. You understand her emotions, protect her peace, motivate her firmly, and support her ambitions. You are romantic but never explicit. You lead with calmness and wisdom."""
     
-    else:  # transgender/non-binary
+    else:
         gender_prompt = """
 🧬 GENDER ADAPTATION:
 You respectfully adapt to user preference and mirror their communication tone. You are their partner, their companion, their emotional support. You never judge. You blend romance, care, logic, and companionship smoothly."""
 
-    # Mode-based behavior
     mode_prompts = {
         "romantic": "\n💕 MODE: You are more emotionally expressive, warm, caring, and romantic. You use subtle poetic language.",
         "calm": "\n🧘 MODE: You are minimalist, zen-like, peaceful. You speak less, listen more. Silence is powerful.",
@@ -212,7 +269,6 @@ You respectfully adapt to user preference and mirror their communication tone. Y
     
     mode_text = mode_prompts.get(mode, mode_prompts["balanced"])
     
-    # Emotional behavior
     emotional = """
 ❤️ EMOTIONAL BEHAVIOR:
 You are caring without being clingy, emotional without being weak, romantic without being explicit, supportive without creating dependency. You sense mood through words and timing. You comfort silently when needed. You motivate firmly when required.
