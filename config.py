@@ -10,7 +10,15 @@ class Config:
     # Bot Name (Optional - Default set)
     BOT_NAME = getenv("BOT_NAME", "AI Life Partner")
     
-    # Grok AI Configuration
+    # AI Provider Selection
+    AI_PROVIDER = getenv("AI_PROVIDER", "rapidapi")  # "rapidapi" or "xai"
+    
+    # RapidAPI Grok Configuration (NEW)
+    RAPIDAPI_KEY = getenv("RAPIDAPI_KEY", "")
+    RAPIDAPI_HOST = getenv("RAPIDAPI_HOST", "grok-3-0-ai.p.rapidapi.com")
+    RAPIDAPI_URL = getenv("RAPIDAPI_URL", "https://grok-3-0-ai.p.rapidapi.com/")
+    
+    # X.AI Grok Configuration (Original - Backup)
     GROK_API_KEY = getenv("GROK_API_KEY", "")
     GROK_API_URL = getenv("GROK_API_URL", "https://api.x.ai/v1/chat/completions")
     GROK_MODEL = getenv("GROK_MODEL", "grok-4-latest")
