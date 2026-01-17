@@ -1,5 +1,5 @@
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import ReactionInvalid, MessageNotModified
 from config import Config
@@ -449,17 +449,12 @@ Status: {api_status}
 ✅ API_HASH: {"Set" if Config.API_HASH else "Missing"}
 ✅ BOT_TOKEN: {"Set" if Config.BOT_TOKEN else "Missing"}
 ✅ RAPIDAPI_KEY: {"Set (" + Config.RAPIDAPI_KEY[:10] + "...)" if Config.RAPIDAPI_KEY else "Missing"}
-✅ RAPIDAPI_APP_ID: {Config.RAPIDAPI_APP_ID}
+✅ RAPIDAPI_HOST: {Config.RAPIDAPI_HOST}
+✅ RAPIDAPI_MODEL: {Config.RAPIDAPI_MODEL}
 ✅ MONGO_URI: {"Set" if Config.MONGO_URI else "Missing"}
 
-**📝 Endpoints:**
-{len(Config.RAPIDAPI_ENDPOINTS)} endpoints configured
-
-**💡 Troubleshooting:**
-1. RapidAPI Dashboard: https://rapidapi.com/
-2. Check subscription status
-3. Verify API key is correct
-4. Check monthly quota
+**💡 RapidAPI Dashboard:**
+https://rapidapi.com/developer/apps
 
 **Owner:** {Config.OWNER_CONTACT}
 """
@@ -557,8 +552,11 @@ async def handle_conversation(client: Client, message: Message):
     except Exception as e:
         print(f"Reaction error: {e}")
     
-    # Typing action
-    await client.send_chat_action(user_id, "typing")
+    # Typing action - FIXED VERSION
+    try:
+        await client.send_chat_action(user_id, enums.ChatAction.TYPING)
+    except:
+        pass  # Ignore if typing action fails
     
     # Get conversation history
     history = await db.get_conversation_history(user_id, limit=5)
