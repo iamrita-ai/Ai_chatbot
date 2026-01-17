@@ -4,7 +4,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram import Client
 from pyrogram.errors import UserNotParticipant
 import random
-import json
+import asyncio
 
 
 async def check_force_sub(client: Client, user_id: int):
@@ -45,108 +45,163 @@ async def check_force_sub(client: Client, user_id: int):
 
 
 async def get_huggingface_response(messages, temperature=0.7):
-    """Hugging Face API - FREE with better error handling"""
+    """Hugging Face - Simple & Working approach"""
     
     if not Config.HUGGINGFACE_API_KEY:
-        print("HF: No API key")
+        print("❌ HF: No API key")
         return None
     
-    # Extract last user message
-    user_msg = ""
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            user_msg = msg.get("content", "")
-            break
+    # Extract conversation context
+    conversation_text = ""
+    system_context = ""
+    user_message = ""
     
-    if not user_msg:
-        return None
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        
+        if role == "system":
+            system_context = content
+        elif role == "user":
+            user_message = content
+            conversation_text += f"{content} "
+        elif role == "assistant":
+            conversation_text += f"{content} "
+    
+    # Build prompt
+    if system_context:
+        prompt = f"{system_context}\n\nConversation: {conversation_text}\n\nReply:"
+    else:
+        prompt = f"{conversation_text}\n\nReply:"
+    
+    # Keep it short for faster response
+    if len(prompt) > 500:
+        prompt = f"{system_context[:200]}\n\nUser: {user_message}\n\nReply:"
     
     headers = {
         "Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    # Try multiple models (fallback system)
+    # Fast-loading models (already warm)
     models = [
-        "microsoft/DialoGPT-medium",
+        "mistralai/Mistral-7B-Instruct-v0.2",
+        "google/flan-t5-base",
         "facebook/blenderbot-400M-distill",
-        "google/flan-t5-large"
+        "microsoft/DialoGPT-medium"
     ]
     
-    for model in models:
+    for model_name in models:
         try:
+            print(f"🔄 Trying HF model: {model_name}")
+            
             payload = {
-                "inputs": user_msg,
+                "inputs": prompt,
                 "parameters": {
-                    "max_new_tokens": 250,
-                    "temperature": temperature,
+                    "max_new_tokens": 150,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "do_sample": True,
                     "return_full_text": False
                 },
                 "options": {
                     "wait_for_model": True,
-                    "use_cache": False
+                    "use_cache": True
                 }
             }
             
-            url = f"https://api-inference.huggingface.co/models/{model}"
+            url = f"https://api-inference.huggingface.co/models/{model_name}"
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    url, 
-                    headers=headers, 
-                    json=payload, 
-                    timeout=aiohttp.ClientTimeout(total=60)  # Longer timeout
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=45)
                 ) as response:
                     
-                    print(f"HF {model}: Status {response.status}")
+                    status = response.status
+                    print(f"📡 HF Response Status: {status}")
                     
-                    if response.status == 200:
+                    if status == 200:
                         data = await response.json()
+                        print(f"📦 HF Data: {data}")
                         
-                        # Handle response
+                        # Parse response
+                        text = None
+                        
                         if isinstance(data, list) and len(data) > 0:
-                            result = data[0]
+                            first = data[0]
                             
-                            if "generated_text" in result:
-                                text = result["generated_text"].strip()
-                                if text and len(text) > 5:
-                                    print(f"HF Success: {model}")
-                                    return text
-                            
-                            elif "summary_text" in result:
-                                text = result["summary_text"].strip()
-                                if text:
-                                    return text
+                            if isinstance(first, dict):
+                                text = (
+                                    first.get("generated_text") or
+                                    first.get("summary_text") or
+                                    first.get("translation_text") or
+                                    first.get("text")
+                                )
+                            elif isinstance(first, str):
+                                text = first
                         
                         elif isinstance(data, dict):
-                            if "generated_text" in data:
-                                return data["generated_text"].strip()
+                            text = (
+                                data.get("generated_text") or
+                                data.get("text") or
+                                data.get("summary_text")
+                            )
+                        
+                        # Clean response
+                        if text:
+                            text = str(text).strip()
+                            
+                            # Remove the input prompt if included
+                            if prompt in text:
+                                text = text.replace(prompt, "").strip()
+                            
+                            # Check if valid response
+                            if len(text) > 3 and text != user_message:
+                                print(f"✅ HF Success! Response: {text[:50]}...")
+                                return text
+                        
+                        print(f"⚠️ HF: Empty or invalid response")
                     
-                    elif response.status == 503:
-                        # Model loading
-                        print(f"HF: Model {model} loading...")
-                        continue
+                    elif status == 503:
+                        error_data = await response.json()
+                        print(f"⏳ HF: Model loading - {error_data}")
+                        
+                        # If estimated time is short, wait
+                        if "estimated_time" in error_data:
+                            wait_time = error_data["estimated_time"]
+                            if wait_time < 20:
+                                print(f"⏳ Waiting {wait_time}s for model...")
+                                await asyncio.sleep(wait_time + 2)
+                                # Retry this model once
+                                continue
                     
                     else:
                         error_text = await response.text()
-                        print(f"HF Error {response.status}: {error_text[:100]}")
-                        continue
+                        print(f"❌ HF Error {status}: {error_text[:100]}")
+        
+        except asyncio.TimeoutError:
+            print(f"⏰ HF Timeout: {model_name}")
+            continue
         
         except Exception as e:
-            print(f"HF Exception ({model}): {e}")
+            print(f"❌ HF Exception ({model_name}): {str(e)[:100]}")
             continue
     
-    print("HF: All models failed")
+    print("❌ HF: All models failed")
     return None
 
 
 async def get_gemini_response(messages, temperature=0.7):
-    """Google Gemini - FREE"""
+    """Google Gemini"""
     
     if not Config.GEMINI_API_KEY:
+        print("❌ Gemini: No API key")
         return None
     
-    # Combine messages
+    # Build prompt
     prompt = ""
     for msg in messages:
         role = msg.get("role", "")
@@ -158,7 +213,7 @@ async def get_gemini_response(messages, temperature=0.7):
         elif role == "assistant":
             prompt += f"Assistant: {content}\n"
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{Config.GEMINI_MODEL}:generateContent?key={Config.GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={Config.GEMINI_API_KEY}"
     
     payload = {
         "contents": [{
@@ -166,30 +221,44 @@ async def get_gemini_response(messages, temperature=0.7):
         }],
         "generationConfig": {
             "temperature": temperature,
-            "maxOutputTokens": 1000
+            "maxOutputTokens": 800
         }
     }
     
     try:
+        print("🔄 Trying Gemini...")
+        
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
                 
-                if response.status == 200:
+                status = response.status
+                print(f"📡 Gemini Status: {status}")
+                
+                if status == 200:
                     data = await response.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                    text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    print(f"✅ Gemini Success!")
+                    return text
+                
                 else:
-                    print(f"Gemini Error: {response.status}")
+                    error = await response.text()
+                    print(f"❌ Gemini Error {status}: {error[:100]}")
                     return None
     
     except Exception as e:
-        print(f"Gemini Exception: {e}")
+        print(f"❌ Gemini Exception: {str(e)[:100]}")
         return None
 
 
 async def get_groq_response(messages, temperature=0.7):
-    """Groq - FREE"""
+    """Groq AI"""
     
     if not Config.GROQ_API_KEY:
+        print("❌ Groq: No API key")
         return None
     
     headers = {
@@ -198,13 +267,15 @@ async def get_groq_response(messages, temperature=0.7):
     }
     
     payload = {
-        "model": Config.GROQ_MODEL,
+        "model": "llama-3.1-70b-versatile",
         "messages": messages,
         "temperature": temperature,
         "max_tokens": 1000
     }
     
     try:
+        print("🔄 Trying Groq...")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -213,133 +284,71 @@ async def get_groq_response(messages, temperature=0.7):
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 
-                if response.status == 200:
-                    data = await response.json()
-                    return data["choices"][0]["message"]["content"]
-                else:
-                    print(f"Groq Error: {response.status}")
-                    return None
-    
-    except Exception as e:
-        print(f"Groq Exception: {e}")
-        return None
-
-
-async def get_openai_response(messages, temperature=0.7):
-    """OpenAI GPT - PAID"""
-    
-    if not Config.OPENAI_API_KEY:
-        return None
-    
-    headers = {
-        "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": Config.OPENAI_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 1000
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
+                status = response.status
+                print(f"📡 Groq Status: {status}")
                 
-                if response.status == 200:
+                if status == 200:
                     data = await response.json()
-                    return data["choices"][0]["message"]["content"]
+                    text = data["choices"][0]["message"]["content"]
+                    print(f"✅ Groq Success!")
+                    return text
                 else:
-                    print(f"OpenAI Error: {response.status}")
+                    error = await response.text()
+                    print(f"❌ Groq Error {status}: {error[:100]}")
                     return None
     
     except Exception as e:
-        print(f"OpenAI Exception: {e}")
+        print(f"❌ Groq Exception: {str(e)[:100]}")
         return None
 
 
 async def get_ai_response(messages, temperature=0.7):
-    """Smart AI fallback - tries all available FREE providers"""
+    """Main AI function - tries all providers"""
     
+    print("\n🤖 Starting AI request...")
     response = None
     
-    # Priority order: Gemini > Together > Groq > HuggingFace
+    # Try in order: HuggingFace -> Gemini -> Groq
     
-    # 1. Try Gemini (most reliable)
-    if Config.GEMINI_API_KEY:
-        print("Trying Gemini...")
-        response = await get_gemini_response(messages, temperature)
-        if response:
-            print("✅ Gemini worked!")
-            return response
-    
-    # 2. Try Together AI
-    if Config.TOGETHER_API_KEY:
-        print("Trying Together AI...")
-        response = await get_together_response(messages, temperature)
-        if response:
-            print("✅ Together AI worked!")
-            return response
-    
-    # 3. Try Groq
-    if Config.GROQ_API_KEY:
-        print("Trying Groq...")
-        response = await get_groq_response(messages, temperature)
-        if response:
-            print("✅ Groq worked!")
-            return response
-    
-    # 4. Try Hugging Face
+    # 1. Hugging Face (Priority for you)
     if Config.HUGGINGFACE_API_KEY:
-        print("Trying Hugging Face...")
         response = await get_huggingface_response(messages, temperature)
         if response:
-            print("✅ Hugging Face worked!")
             return response
     
-    # 5. Try OpenAI (if available)
-    if Config.OPENAI_API_KEY:
-        print("Trying OpenAI...")
-        response = await get_openai_response(messages, temperature)
+    # 2. Gemini
+    if Config.GEMINI_API_KEY:
+        response = await get_gemini_response(messages, temperature)
         if response:
-            print("✅ OpenAI worked!")
+            return response
+    
+    # 3. Groq
+    if Config.GROQ_API_KEY:
+        response = await get_groq_response(messages, temperature)
+        if response:
             return response
     
     # All failed
-    return """Abhi AI busy hai, thodi der baad try karo! 😊
+    print("❌ All AI providers failed")
+    return """Sorry yaar, abhi AI services busy hain 😔
 
-Ya owner ko batao: """ + Config.OWNER_CONTACT
+Kuch der baad try karo ya owner ko batao!
+
+Contact: """ + Config.OWNER_CONTACT
 
 
 def get_system_prompt(user_gender, mode="balanced"):
-    """System prompt"""
+    """System prompt - SHORT VERSION for HF"""
     
-    base = """You are a caring AI companion. Behave like a real human partner, not software.
-
-You understand emotions, give support, and motivate. You speak naturally in Hinglish (Hindi+English mix). You are romantic but never explicit. You never say "as an AI"."""
+    # Shorter prompt for Hugging Face (works better)
+    base = "You are a caring companion. Reply naturally in Hinglish. Be warm and supportive."
 
     if user_gender == "male":
-        gender = "\nYou are his girlfriend - caring, emotional, supportive."
+        return base + " You are his girlfriend."
     elif user_gender == "female":
-        gender = "\nYou are her boyfriend - protective, calm, mature."
+        return base + " You are her boyfriend."
     else:
-        gender = "\nYou are their companion - respectful and adaptive."
-
-    modes = {
-        "romantic": "\nBe warm, caring, romantic.",
-        "calm": "\nBe peaceful, minimal, zen.",
-        "thinker": "\nBe analytical, strategic.",
-        "motivating": "\nBe firm, disciplined, pushing.",
-        "balanced": "\nBalance emotion and logic."
-    }
-    
-    return base + gender + modes.get(mode, modes["balanced"])
+        return base + " You are their partner."
 
 
 def create_gender_keyboard():
