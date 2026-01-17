@@ -392,34 +392,101 @@ async def unban_user_command(client: Client, message: Message):
 async def debug_command(client: Client, message: Message):
     # Test Grok AI
     grok_status = "❌ Not Configured"
+    grok_detail = ""
+    
     if Config.GROK_API_KEY:
+        test_msg = await message.reply("🔍 Testing Grok AI API...")
+        
         test_response = await get_grok_response([
-            {"role": "system", "content": "You are a test assistant."},
-            {"role": "user", "content": "Say 'OK' only."}
-        ])
-        grok_status = "✅ Working" if "OK" in test_response or len(test_response) < 50 else f"⚠️ {test_response[:100]}"
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Reply with only: WORKING"}
+        ], temperature=0)
+        
+        if "WORKING" in test_response.upper() and "❌" not in test_response:
+            grok_status = "✅ Working Perfectly"
+            grok_detail = test_response[:50]
+        elif "❌" in test_response:
+            grok_status = "❌ API Error"
+            grok_detail = test_response
+        else:
+            grok_status = "⚠️ Unexpected Response"
+            grok_detail = test_response[:100]
+        
+        await test_msg.delete()
     
     # Test MongoDB
     mongo_status = "✅ Connected" if db.client else "❌ Not Connected"
     
+    # Test Log Channel
+    log_status = "❌ Not Set"
+    if Config.LOG_CHANNEL:
+        try:
+            await client.get_chat(Config.LOG_CHANNEL)
+            log_status = "✅ Accessible"
+        except:
+            log_status = "⚠️ Set but not accessible"
+    
+    # Test Force Sub
+    force_status = "❌ Not Set"
+    if Config.FORCE_SUB_CHANNEL:
+        try:
+            channel = Config.FORCE_SUB_CHANNEL.replace("@", "").replace("https://t.me/", "").strip()
+            await client.get_chat(f"@{channel}")
+            force_status = "✅ Accessible"
+        except:
+            force_status = "⚠️ Set but not accessible"
+    
     debug_text = f"""
 🔍 **System Health Check**
 
-**Grok AI API:** {grok_status}
-**MongoDB:** {mongo_status}
-**Log Channel:** {"✅ Set" if Config.LOG_CHANNEL else "❌ Not Set"}
-**Force Sub:** {"✅ Set" if Config.FORCE_SUB_CHANNEL else "❌ Not Set"}
+**🤖 Grok AI API:**
+Status: {grok_status}
+{f"Detail: {grok_detail}" if grok_detail else ""}
 
-**Environment:**
-API_ID: {"✅" if Config.API_ID else "❌"}
-API_HASH: {"✅" if Config.API_HASH else "❌"}
-BOT_TOKEN: {"✅" if Config.BOT_TOKEN else "❌"}
-GROK_API_KEY: {"✅" if Config.GROK_API_KEY else "❌"}
-MONGO_URI: {"✅" if Config.MONGO_URI else "❌"}
+**💾 MongoDB:** {mongo_status}
+**📢 Log Channel:** {log_status}
+**🔒 Force Sub:** {force_status}
+
+**🔧 Environment Variables:**
+✅ API_ID: {"Set" if Config.API_ID else "Missing"}
+✅ API_HASH: {"Set" if Config.API_HASH else "Missing"}
+✅ BOT_TOKEN: {"Set" if Config.BOT_TOKEN else "Missing"}
+✅ GROK_API_KEY: {"Set" if Config.GROK_API_KEY else "Missing"}
+✅ MONGO_URI: {"Set" if Config.MONGO_URI else "Missing"}
+
+**📝 API Configuration:**
+Model: {Config.GROK_MODEL}
+URL: {Config.GROK_API_URL}
+
+**💡 Troubleshooting:**
+{get_troubleshooting_tips(grok_status)}
 """
     await message.reply(debug_text)
 
 
+def get_troubleshooting_tips(status):
+    """Get troubleshooting tips based on status"""
+    if "❌" in status or "Error" in status:
+        return """
+⚠️ **Grok AI Issues Detected!**
+
+**Possible Solutions:**
+1. Check if API key is correct
+2. Verify X.AI account is active
+3. Check if you have Grok API access
+4. Try generating new API key from console.x.ai
+5. Check billing/payment status
+
+**Get API Key:**
+→ https://console.x.ai
+→ API Keys section
+→ Create new key
+
+**Need Help?**
+Contact: https://t.me/technicalserena
+"""
+    else:
+        return "✅ All systems operational!"
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
     total_users = await db.get_total_users()
