@@ -4,6 +4,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram import Client
 from pyrogram.errors import UserNotParticipant, ChatAdminRequired, UsernameNotOccupied, ChannelPrivate
 import random
+import json
 
 async def check_force_sub(client: Client, user_id: int):
     """Check if user is subscribed to force sub channel"""
@@ -51,10 +52,95 @@ async def check_force_sub(client: Client, user_id: int):
         return True, None
 
 
-async def get_grok_response(messages, temperature=0.7):
-    """Get response from Grok AI API with better error handling"""
+async def get_rapidapi_grok_response(messages, temperature=0.7):
+    """Get response from RapidAPI Grok"""
+    if not Config.RAPIDAPI_KEY:
+        return "❌ **RapidAPI Key Missing**\n\nOwner ne RapidAPI key configure nahi kiya hai."
+    
+    # RapidAPI Headers
+    headers = {
+        "content-type": "application/json",
+        "X-RapidAPI-Key": Config.RAPIDAPI_KEY,
+        "X-RapidAPI-Host": Config.RAPIDAPI_HOST
+    }
+    
+    # Prepare conversation for RapidAPI format
+    # RapidAPI Grok usually expects simpler format
+    conversation_text = ""
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        
+        if role == "system":
+            conversation_text += f"System Instructions: {content}\n\n"
+        elif role == "user":
+            conversation_text += f"User: {content}\n"
+        elif role == "assistant":
+            conversation_text += f"Assistant: {content}\n"
+    
+    # RapidAPI Grok payload (check your API docs for exact format)
+    payload = {
+        "prompt": conversation_text,
+        "temperature": temperature,
+        "max_tokens": 1000
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                Config.RAPIDAPI_URL,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    # Different RapidAPI endpoints return different formats
+                    # Try multiple extraction methods
+                    if isinstance(data, dict):
+                        # Method 1: Direct response
+                        if "response" in data:
+                            return data["response"]
+                        # Method 2: Choices format (OpenAI-like)
+                        elif "choices" in data:
+                            return data["choices"][0]["message"]["content"]
+                        # Method 3: Text field
+                        elif "text" in data:
+                            return data["text"]
+                        # Method 4: Result field
+                        elif "result" in data:
+                            return data["result"]
+                        # Method 5: Output field
+                        elif "output" in data:
+                            return data["output"]
+                        else:
+                            return str(data)
+                    else:
+                        return str(data)
+                
+                elif response.status == 401:
+                    return "❌ **RapidAPI Authentication Failed**\n\nAPI key invalid hai."
+                
+                elif response.status == 403:
+                    return "❌ **RapidAPI Access Denied**\n\nSubscription inactive hai ya quota finish ho gaya."
+                
+                elif response.status == 429:
+                    return "⏳ **Rate Limit Exceeded**\n\nMonthly quota finish ho gaya. Owner se contact karo."
+                
+                else:
+                    error_text = await response.text()
+                    return f"❌ **RapidAPI Error ({response.status})**\n\n{error_text[:200]}"
+                    
+    except Exception as e:
+        return f"❌ **Connection Error**\n\n{str(e)[:150]}"
+
+
+async def get_xai_grok_response(messages, temperature=0.7):
+    """Get response from X.AI Official Grok (Backup)"""
     if not Config.GROK_API_KEY:
-        return "❌ **Grok AI API Key Missing**\n\nOwner ne API key configure nahi kiya hai."
+        return "❌ X.AI API key not configured."
     
     headers = {
         "Content-Type": "application/json",
@@ -79,31 +165,27 @@ async def get_grok_response(messages, temperature=0.7):
                 if response.status == 200:
                     data = await response.json()
                     return data["choices"][0]["message"]["content"]
-                
-                elif response.status == 401:
-                    return "❌ **Grok AI Authentication Failed**\n\nAPI key invalid hai. Owner se contact karo."
-                
-                elif response.status == 403:
-                    return "❌ **Grok AI Access Denied**\n\nAPI key mein permission nahi hai ya account inactive hai.\n\nOwner ko X.AI account check karna hoga."
-                
-                elif response.status == 429:
-                    return "⏳ **Rate Limit Exceeded**\n\nBahut zyada requests ho gaye. Thodi der baad try karo."
-                
-                elif response.status == 500:
-                    return "⚠️ **Grok AI Server Error**\n\nX.AI servers down hain. Thodi der baad try karo."
-                
                 else:
                     error_text = await response.text()
-                    return f"❌ **Grok AI Error ({response.status})**\n\n{error_text[:200]}"
-                    
-    except asyncio.TimeoutError:
-        return "⏳ **Request Timeout**\n\nGrok AI response mein bahut time lag raha hai. Phir se try karo."
-    
-    except aiohttp.ClientError as e:
-        return f"❌ **Network Error**\n\nGrok AI se connection nahi ho paa raha: {str(e)[:100]}"
-    
+                    return f"❌ X.AI Error ({response.status}): {error_text[:100]}"
     except Exception as e:
-        return f"❌ **Unknown Error**\n\n{str(e)[:150]}"
+        return f"❌ X.AI Error: {str(e)[:100]}"
+
+
+async def get_grok_response(messages, temperature=0.7):
+    """Main function - Auto select provider based on config"""
+    if Config.AI_PROVIDER == "rapidapi" and Config.RAPIDAPI_KEY:
+        return await get_rapidapi_grok_response(messages, temperature)
+    elif Config.AI_PROVIDER == "xai" and Config.GROK_API_KEY:
+        return await get_xai_grok_response(messages, temperature)
+    else:
+        # Fallback: Try both
+        if Config.RAPIDAPI_KEY:
+            return await get_rapidapi_grok_response(messages, temperature)
+        elif Config.GROK_API_KEY:
+            return await get_xai_grok_response(messages, temperature)
+        else:
+            return "❌ **No AI Provider Configured**\n\nOwner ne RapidAPI ya X.AI key configure nahi kiya hai."
 
 
 def get_system_prompt(user_gender, mode="balanced"):
