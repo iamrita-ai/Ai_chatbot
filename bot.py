@@ -390,29 +390,26 @@ async def unban_user_command(client: Client, message: Message):
 
 @bot.on_message(filters.command("debug") & filters.user(Config.OWNER_ID) & filters.private)
 async def debug_command(client: Client, message: Message):
-    # Test Grok AI
-    grok_status = "❌ Not Configured"
-    grok_detail = ""
     
-    if Config.GROK_API_KEY:
-        test_msg = await message.reply("🔍 Testing Grok AI API...")
-        
-        test_response = await get_grok_response([
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Reply with only: WORKING"}
-        ], temperature=0)
-        
-        if "WORKING" in test_response.upper() and "❌" not in test_response:
-            grok_status = "✅ Working Perfectly"
-            grok_detail = test_response[:50]
-        elif "❌" in test_response:
-            grok_status = "❌ API Error"
-            grok_detail = test_response
-        else:
-            grok_status = "⚠️ Unexpected Response"
-            grok_detail = test_response[:100]
-        
-        await test_msg.delete()
+    # Test RapidAPI
+    test_msg = await message.reply("🔍 Testing RapidAPI Grok...")
+    
+    test_response = await get_grok_response([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Reply with only: WORKING"}
+    ], temperature=0)
+    
+    await test_msg.delete()
+    
+    if "WORKING" in test_response.upper() and "❌" not in test_response:
+        api_status = "✅ Working"
+        api_detail = f"Response: {test_response[:50]}"
+    elif "❌" in test_response:
+        api_status = "❌ Error"
+        api_detail = test_response[:300]
+    else:
+        api_status = "⚠️ Unexpected"
+        api_detail = f"Got: {test_response[:100]}"
     
     # Test MongoDB
     mongo_status = "✅ Connected" if db.client else "❌ Not Connected"
@@ -421,72 +418,58 @@ async def debug_command(client: Client, message: Message):
     log_status = "❌ Not Set"
     if Config.LOG_CHANNEL:
         try:
-            await client.get_chat(Config.LOG_CHANNEL)
-            log_status = "✅ Accessible"
-        except:
-            log_status = "⚠️ Set but not accessible"
+            chat = await client.get_chat(Config.LOG_CHANNEL)
+            log_status = f"✅ {chat.title}"
+        except Exception as e:
+            log_status = f"⚠️ Error: {str(e)[:50]}"
     
     # Test Force Sub
     force_status = "❌ Not Set"
     if Config.FORCE_SUB_CHANNEL:
         try:
             channel = Config.FORCE_SUB_CHANNEL.replace("@", "").replace("https://t.me/", "").strip()
-            await client.get_chat(f"@{channel}")
-            force_status = "✅ Accessible"
-        except:
-            force_status = "⚠️ Set but not accessible"
+            chat = await client.get_chat(f"@{channel}")
+            force_status = f"✅ {chat.title}"
+        except Exception as e:
+            force_status = f"⚠️ Error: {str(e)[:50]}"
+    
+    # Working endpoint info
+    endpoint_info = "Not detected yet"
+    if WORKING_ENDPOINT:
+        endpoint_info = f"✅ {WORKING_ENDPOINT['name']}\nURL: {WORKING_ENDPOINT['url']}"
     
     debug_text = f"""
 🔍 **System Health Check**
 
-**🤖 Grok AI API:**
-Status: {grok_status}
-{f"Detail: {grok_detail}" if grok_detail else ""}
+**🤖 RapidAPI Grok:**
+Status: {api_status}
+{api_detail}
+
+**🔌 Endpoint:**
+{endpoint_info}
 
 **💾 MongoDB:** {mongo_status}
 **📢 Log Channel:** {log_status}
 **🔒 Force Sub:** {force_status}
 
-**🔧 Environment Variables:**
+**🔧 Configuration:**
 ✅ API_ID: {"Set" if Config.API_ID else "Missing"}
 ✅ API_HASH: {"Set" if Config.API_HASH else "Missing"}
 ✅ BOT_TOKEN: {"Set" if Config.BOT_TOKEN else "Missing"}
-✅ GROK_API_KEY: {"Set" if Config.GROK_API_KEY else "Missing"}
+✅ RAPIDAPI_KEY: {"Set (" + Config.RAPIDAPI_KEY[:10] + "...)" if Config.RAPIDAPI_KEY else "Missing"}
+✅ RAPIDAPI_APP_ID: {Config.RAPIDAPI_APP_ID}
 ✅ MONGO_URI: {"Set" if Config.MONGO_URI else "Missing"}
 
-**📝 API Configuration:**
-Model: {Config.GROK_MODEL}
-URL: {Config.GROK_API_URL}
+**📝 Available Endpoints:**
+{len(Config.RAPIDAPI_ENDPOINTS)} endpoints configured
 
-**💡 Troubleshooting:**
-{get_troubleshooting_tips(grok_status)}
+**💡 Next Steps:**
+1. Check RapidAPI dashboard: https://rapidapi.com/
+2. Verify subscription is active
+3. Check API key is correct
 """
     await message.reply(debug_text)
 
-
-def get_troubleshooting_tips(status):
-    """Get troubleshooting tips based on status"""
-    if "❌" in status or "Error" in status:
-        return """
-⚠️ **Grok AI Issues Detected!**
-
-**Possible Solutions:**
-1. Check if API key is correct
-2. Verify X.AI account is active
-3. Check if you have Grok API access
-4. Try generating new API key from console.x.ai
-5. Check billing/payment status
-
-**Get API Key:**
-→ https://console.x.ai
-→ API Keys section
-→ Create new key
-
-**Need Help?**
-Contact: https://t.me/technicalserena
-"""
-    else:
-        return "✅ All systems operational!"
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
     total_users = await db.get_total_users()
