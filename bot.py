@@ -337,17 +337,26 @@ async def debug_command(client: Client, message: Message):
         except Exception as e:
             force = f"⚠️ {str(e)[:30]}"
     
-    # Hugging Face
-    hf_status = "❌ Not Set"
+    # AI Providers
+    ai_status = []
+    
+    if Config.COHERE_API_KEY:
+        ai_status.append(f"✅ Cohere: {Config.COHERE_API_KEY[:10]}...")
+    else:
+        ai_status.append("❌ Cohere: Not Set")
+    
     if Config.HUGGINGFACE_API_KEY:
-        hf_status = f"✅ Token: {Config.HUGGINGFACE_API_KEY[:10]}..."
+        ai_status.append(f"✅ HF: {Config.HUGGINGFACE_API_KEY[:10]}...")
+    else:
+        ai_status.append("❌ HF: Not Set")
+    
+    ai_info = "\n".join(ai_status)
     
     debug_text = f"""
 🔍 **System Check**
 
-**🤖 AI Provider:**
-Hugging Face ONLY
-{hf_status}
+**🤖 AI Providers:**
+{ai_info}
 
 **💾 MongoDB:** {mongo}
 **📢 Log:** {log_status}
@@ -357,8 +366,9 @@ Hugging Face ONLY
 
 **Test:** /aitest
 
-**Get HF Token:**
-https://huggingface.co/settings/tokens
+**Get FREE API Keys:**
+• Cohere: https://dashboard.cohere.com
+• HF: https://huggingface.co/settings/tokens
 """
     await message.reply(debug_text)
 
@@ -366,27 +376,33 @@ https://huggingface.co/settings/tokens
 @bot.on_message(filters.command("aitest") & filters.user(Config.OWNER_ID) & filters.private)
 async def ai_test(client: Client, message: Message):
     
-    test_msg = await message.reply("🔍 Testing Hugging Face...\n\nPlease wait 10-30 seconds...")
+    test_msg = await message.reply("🔍 Testing AI providers...")
     
     response = await get_ai_response([
-        {"role": "system", "content": "You are helpful."},
-        {"role": "user", "content": "Hello, how are you?"}
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello! How are you today?"}
     ], temperature=0.7)
     
-    if "❌" in response or "busy" in response.lower() or len(response) < 10:
-        status = "❌ Failed"
-        detail = response
+    # Check response quality
+    if response and len(response) > 10 and "❌" not in response and "busy" not in response.lower():
+        status = "✅ **Working Perfectly!**"
     else:
-        status = "✅ Working"
-        detail = f"Response: {response}"
+        status = "❌ **Failed**"
     
-    await test_msg.edit_text(
-        f"**Hugging Face Test**\n\n"
-        f"{status}\n\n"
-        f"{detail}\n\n"
-        f"**Token:** {Config.HUGGINGFACE_API_KEY[:15] if Config.HUGGINGFACE_API_KEY else 'Not Set'}..."
-    )
+    result = f"""
+**AI Provider Test**
 
+{status}
+
+**Response:**
+{response}
+
+**Configured:**
+{"✅ Cohere" if Config.COHERE_API_KEY else "❌ Cohere"}
+{"✅ Hugging Face" if Config.HUGGINGFACE_API_KEY else "❌ Hugging Face"}
+"""
+    
+    await test_msg.edit_text(result)
 
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
