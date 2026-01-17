@@ -10,23 +10,23 @@ class Config:
     # Bot Name
     BOT_NAME = getenv("BOT_NAME", "AI Life Partner")
     
-    # AI Provider Selection
-    AI_PROVIDER = getenv("AI_PROVIDER", "groq")  # groq, gemini, huggingface
+    # AI Provider Selection (gpt, groq, gemini)
+    AI_PROVIDER = getenv("AI_PROVIDER", "groq")
     
-    # Groq AI Configuration (FREE - RECOMMENDED)
+    # OpenAI GPT-4 Configuration
+    OPENAI_API_KEY = getenv("OPENAI_API_KEY", "")
+    OPENAI_API_URL = getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+    OPENAI_MODEL = getenv("OPENAI_MODEL", "gpt-4")
+    
+    # Groq AI Configuration (FREE)
     GROQ_API_KEY = getenv("GROQ_API_KEY", "")
     GROQ_API_URL = getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
     GROQ_MODEL = getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
     
-    # Google Gemini (BACKUP - FREE)
+    # Google Gemini (BACKUP)
     GEMINI_API_KEY = getenv("GEMINI_API_KEY", "")
     GEMINI_API_URL = getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models")
     GEMINI_MODEL = getenv("GEMINI_MODEL", "gemini-pro")
-    
-    # Hugging Face (BACKUP 2 - FREE)
-    HUGGINGFACE_API_KEY = getenv("HUGGINGFACE_API_KEY", "")
-    HUGGINGFACE_API_URL = getenv("HUGGINGFACE_API_URL", "https://api-inference.huggingface.co/models")
-    HUGGINGFACE_MODEL = getenv("HUGGINGFACE_MODEL", "meta-llama/Llama-2-70b-chat-hf")
     
     # Database Configuration
     MONGO_URI = getenv("MONGO_URI", "")
