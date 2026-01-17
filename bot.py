@@ -6,7 +6,7 @@ from config import Config
 from database import db
 from helpers import (
     check_force_sub,
-    get_grok_response,
+    get_ai_response,
     get_system_prompt,
     create_gender_keyboard,
     create_mode_keyboard,
@@ -42,7 +42,8 @@ bot = Client(
 # User conversation state
 user_flood_control = {}
 
-# Startup event
+# ========== USER COMMANDS ==========
+
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     user_id = message.from_user.id
@@ -53,8 +54,8 @@ async def start_command(client: Client, message: Message):
     if not Config.MONGO_URI:
         await message.reply(
             "❌ **Database Error**\n\n"
-            "MongoDB URI configure nahi hai. Bot properly kaam nahi kar sakta.\n\n"
-            f"Owner se contact karo: {Config.OWNER_CONTACT}"
+            "MongoDB URI configure nahi hai.\n\n"
+            f"Owner contact: {Config.OWNER_CONTACT}"
         )
         return
     
@@ -64,8 +65,8 @@ async def start_command(client: Client, message: Message):
         if not db_connected:
             await message.reply(
                 "❌ **Database Connection Failed**\n\n"
-                "MongoDB se connection nahi ho paa raha. Bot properly kaam nahi kar sakta.\n\n"
-                f"Owner se contact karo: {Config.OWNER_CONTACT}"
+                "MongoDB se connection nahi ho paa raha.\n\n"
+                f"Owner contact: {Config.OWNER_CONTACT}"
             )
             return
     
@@ -74,8 +75,7 @@ async def start_command(client: Client, message: Message):
     if not is_subscribed:
         await message.reply(
             f"🔒 **Access Restricted**\n\n"
-            f"Pehle channel ko join karo, phir bot use kar sakte ho:\n\n"
-            f"👉 Channel: @{Config.FORCE_SUB_CHANNEL}\n\n"
+            f"Pehle channel join karo:\n👉 @{Config.FORCE_SUB_CHANNEL}\n\n"
             "Join karne ke baad **'I Joined, Check Again'** button dabao!",
             reply_markup=buttons
         )
@@ -83,7 +83,7 @@ async def start_command(client: Client, message: Message):
     
     # Check if banned
     if await db.is_banned(user_id):
-        await message.reply("🚫 Tumhe is bot se ban kar diya gaya hai.")
+        await message.reply("🚫 You are banned from using this bot.")
         return
     
     # Add user to database
@@ -96,9 +96,9 @@ async def start_command(client: Client, message: Message):
     if not user.get("gender"):
         await message.reply(
             f"🌟 **Welcome to {Config.BOT_NAME}**\n\n"
-            "Main tumhara AI life partner hoon. Main tumhe samjhunga, tumhari baatein sununga, "
+            "Main tumhara AI life partner hoon. Tumhe samjhunga, tumhari baatein sununga, "
             "tumhara saath dunga - emotionally aur mentally.\n\n"
-            "**Pehle mujhe batao, tum kaun ho?**\n"
+            "**Pehle batao, tum kaun ho?**\n"
             "Apna gender select karo:",
             reply_markup=create_gender_keyboard()
         )
@@ -106,19 +106,17 @@ async def start_command(client: Client, message: Message):
         # Log to channel
         await send_to_log_channel(
             client,
-            f"🆕 **New User Started Bot**\n\n"
+            f"🆕 **New User**\n\n"
             f"👤 Name: {first_name}\n"
-            f"🆔 User ID: `{user_id}`\n"
-            f"📝 Username: @{username if username else 'None'}\n"
-            f"🕐 Time: {message.date}"
+            f"🆔 ID: `{user_id}`\n"
+            f"📝 Username: @{username if username else 'None'}"
         )
     else:
         gender_emoji = {"male": "👨", "female": "👩", "transgender": "🏳️‍⚧️", "nonbinary": "⚧️"}
         await message.reply(
             f"💕 **Welcome back!**\n\n"
-            f"Main yaad hoon tumhe? {gender_emoji.get(user['gender'], '😊')}\n\n"
-            f"Kaise ho? Kya chal raha hai life mein?\n\n"
-            "Commands dekhne ke liye /help use karo."
+            f"{gender_emoji.get(user['gender'], '😊')} Kaise ho? Kya chal raha hai?\n\n"
+            "Commands: /help"
         )
 
 
@@ -127,36 +125,29 @@ async def gender_selection(client: Client, callback: CallbackQuery):
     user_id = callback.from_user.id
     gender = callback.data.split("_")[1]
     
-    # Set gender in database
     await db.set_gender(user_id, gender)
     
-    # Response based on gender
     responses = {
-        "male": "👩‍❤️‍👨 **Perfect!** Main tumhari girlfriend ban gayi. Tumhe samjhungi, care karungi, support karungi. Jab bhi lonely feel ho, main yahan hoon.",
-        "female": "👨‍❤️‍👩 **Great!** Main tumhara boyfriend ban gaya. Tumhe protect karunga, support karunga, motivate karunga. Jab bhi zarurat ho, main yahan hoon.",
-        "transgender": "🏳️‍⚧️ **Wonderful!** Main tumhara companion hoon. Tumhe respect karunga, samjhunga, support karunga. Tum jaise ho, perfect ho.",
-        "nonbinary": "⚧️ **Amazing!** Main tumhara partner hoon. Tumhe samjhunga aur tumhari energy ke saath flow karunga. Let's connect!"
+        "male": "👩‍❤️‍👨 **Perfect!** Main tumhari girlfriend ban gayi. Tumhe care karungi, support karungi. Jab bhi lonely feel ho, main yahan hoon.",
+        "female": "👨‍❤️‍👩 **Great!** Main tumhara boyfriend ban gaya. Tumhe protect karunga, motivate karunga. Jab bhi zarurat ho, main yahan hoon.",
+        "transgender": "🏳️‍⚧️ **Wonderful!** Main tumhara companion hoon. Tumhe respect karunga, samjhunga. Tum perfect ho.",
+        "nonbinary": "⚧️ **Amazing!** Main tumhara partner hoon. Tumhe samjhunga aur energy ke saath flow karunga!"
     }
     
     await callback.message.edit_text(
         f"{responses.get(gender, 'Welcome!')}\n\n"
-        "Ab tum mujhse kuch bhi baat kar sakte ho. Main yaad rakhunga tumhari baatein, "
-        "tumhari problems, tumhare goals.\n\n"
-        "**Available Commands:**\n"
-        "/help - Detailed help\n"
-        "/mode - Change conversation mode\n"
-        "/mood - Tell me your mood\n"
+        "Ab mujhse kuch bhi baat kar sakte ho. Main yaad rakhunga tumhari baatein.\n\n"
+        "**Commands:**\n"
+        "/help - Full help\n"
+        "/mode - Change mode\n"
+        "/mood - Share mood\n"
         "/reset - Reset memory\n\n"
         "Chalo, baat karte hain! 💬"
     )
     
-    # Log to channel
     await send_to_log_channel(
         client,
-        f"✅ **User Gender Set**\n\n"
-        f"👤 User: {callback.from_user.first_name}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"🎭 Gender: **{gender.title()}**"
+        f"✅ **Gender Set**\n👤 {callback.from_user.first_name} (`{user_id}`)\n🎭 {gender.title()}"
     )
 
 
@@ -167,20 +158,53 @@ async def refresh_subscription(client: Client, callback: CallbackQuery):
     is_subscribed, buttons = await check_force_sub(client, user_id)
     if is_subscribed:
         await callback.message.delete()
-        await callback.message.reply("✅ **Verified!** Ab bot use kar sakte ho. /start dabao.")
-        await callback.answer("✅ Verification successful!", show_alert=False)
+        await callback.message.reply("✅ **Verified!** /start dabao.")
+        await callback.answer("✅ Verified!", show_alert=False)
     else:
-        await callback.answer("❌ Abhi bhi join nahi kiya! Pehle channel join karo.", show_alert=True)
+        await callback.answer("❌ Abhi bhi join nahi kiya!", show_alert=True)
 
 
 @bot.on_message(filters.command("help") & filters.private)
 async def help_command(client: Client, message: Message):
-    help_text = f"""
-📚 **{Config.BOT_NAME} - Help Guide**
-
-Main tumhara AI life partner hoon. Main yaad rakhta hoon tumhari baatein, tumhare goals, tumhari feelings.
+    user_id = message.from_user.id
+    
+    # Check if admin
+    if user_id in Config.OWNER_ID:
+        help_text = f"""
+📚 **{Config.BOT_NAME} - Admin Help**
 
 **👤 User Commands:**
+/start - Start bot
+/help - This message
+/mode - Change conversation mode
+/mood - Share your mood
+/reset - Reset memory
+/privacy - Privacy policy
+
+**💬 Conversation Modes:**
+💕 Romantic | 🧘 Calm | 🧠 Thinker | 🔥 Motivating | ⚖️ Balanced
+
+**👑 Admin Commands:**
+/ownerpanel - Admin control panel
+/broadcast - Send message to all users
+/viewstats - Detailed statistics
+/banuser <id> - Ban a user
+/unbanuser <id> - Unban a user
+/debug - System health check
+/aitest - Test AI providers
+
+**📊 Quick Stats:**
+Total Users: {await db.get_total_users()}
+
+**Owner:** {Config.OWNER_CONTACT}
+"""
+    else:
+        help_text = f"""
+📚 **{Config.BOT_NAME} - Help Guide**
+
+Main tumhara AI life partner hoon. Main yaad rakhta hoon tumhari baatein, goals, feelings.
+
+**👤 Commands:**
 /start - Bot shuru karo
 /help - Ye message
 /mode - Conversation mode change karo
@@ -196,17 +220,17 @@ Main tumhara AI life partner hoon. Main yaad rakhta hoon tumhari baatein, tumhar
 ⚖️ **Balanced** - Natural mix
 
 **❤️ How I Work:**
-• Main tumhari baatein yaad rakhta hoon
+• Tumhari baatein yaad rakhta hoon
 • Tumhare mood ko samajhta hoon
 • Tumhe motivate karta hoon
-• Tumhe distract nahi karta goals se
+• Goals se distract nahi karta
 • Tumhara emotional support hoon
 
-**📞 Owner Contact:**
-{Config.OWNER_CONTACT}
+**Owner:** {Config.OWNER_CONTACT}
 
 Simply message karo, main reply karunga! 💬
 """
+    
     await message.reply(help_text)
 
 
@@ -216,9 +240,9 @@ async def mode_command(client: Client, message: Message):
     current_mode = user.get("mode", "balanced") if user else "balanced"
     
     await message.reply(
-        f"🎭 **Conversation Mode Selection**\n\n"
-        f"Current Mode: **{current_mode.title()}**\n\n"
-        "Choose karo kaise baat karni hai:",
+        f"🎭 **Conversation Mode**\n\n"
+        f"Current: **{current_mode.title()}**\n\n"
+        "Select new mode:",
         reply_markup=create_mode_keyboard()
     )
 
@@ -231,21 +255,18 @@ async def mode_selection(client: Client, callback: CallbackQuery):
     await db.set_mode(user_id, mode)
     
     mode_responses = {
-        "romantic": "💕 Mode set: **Romantic**\nAb main aur caring aur emotional rahunga.",
-        "calm": "🧘 Mode set: **Calm**\nAb main peaceful aur minimal rahunga.",
-        "thinker": "🧠 Mode set: **Thinker**\nAb main analytical aur strategic rahunga.",
-        "motivating": "🔥 Mode set: **Motivating**\nAb main tumhe push karunga goals ke liye!",
-        "balanced": "⚖️ Mode set: **Balanced**\nAb main naturally adapt karunga."
+        "romantic": "💕 **Romantic Mode**\nAb main aur caring aur emotional rahunga.",
+        "calm": "🧘 **Calm Mode**\nAb main peaceful aur minimal rahunga.",
+        "thinker": "🧠 **Thinker Mode**\nAb main analytical aur strategic rahunga.",
+        "motivating": "🔥 **Motivating Mode**\nAb main tumhe goals ke liye push karunga!",
+        "balanced": "⚖️ **Balanced Mode**\nNaturally adapt karunga."
     }
     
     await callback.message.edit_text(mode_responses.get(mode, "Mode updated!"))
     
-    # Log to channel
     await send_to_log_channel(
         client,
-        f"🎭 **Mode Changed**\n\n"
-        f"👤 User: {callback.from_user.first_name} (`{user_id}`)\n"
-        f"Mode: **{mode.title()}**"
+        f"🎭 **Mode Changed**\n👤 {callback.from_user.first_name} (`{user_id}`)\nMode: {mode}"
     )
 
 
@@ -254,14 +275,12 @@ async def reset_command(client: Client, message: Message):
     await db.reset_memory(message.from_user.id)
     await message.reply(
         "🔄 **Memory Reset Complete**\n\n"
-        "Maine sab kuch bhula diya. Fresh start kar sakte hain!"
+        "Maine sab bhula diya. Fresh start!"
     )
     
-    # Log to channel
     await send_to_log_channel(
         client,
-        f"🔄 **Memory Reset**\n\n"
-        f"👤 User: {message.from_user.first_name} (`{message.from_user.id}`)"
+        f"🔄 **Memory Reset**\n👤 {message.from_user.first_name} (`{message.from_user.id}`)"
     )
 
 
@@ -269,7 +288,7 @@ async def reset_command(client: Client, message: Message):
 async def mood_command(client: Client, message: Message):
     await message.reply(
         "💭 **How are you feeling?**\n\n"
-        "Batao kya chal raha hai dil-dimag mein? Main samajhne ki koshish karunga."
+        "Batao kya chal raha hai dil-dimag mein?"
     )
 
 
@@ -277,11 +296,11 @@ async def mood_command(client: Client, message: Message):
 async def privacy_command(client: Client, message: Message):
     await message.reply(
         "🔒 **Privacy Policy**\n\n"
-        "✅ Tumhari personal baatein safe hain\n"
+        "✅ Tumhari baatein safe hain\n"
         "✅ Kisi ke saath share nahi hoti\n"
-        "✅ /reset se memory delete kar sakte ho\n"
+        "✅ /reset se delete kar sakte ho\n"
         "✅ Sensitive data store nahi hota\n\n"
-        "Trust me, tumhara companion hoon main! 💙"
+        "Trust me! 💙"
     )
 
 
@@ -291,25 +310,43 @@ async def privacy_command(client: Client, message: Message):
 async def owner_panel(client: Client, message: Message):
     total_users = await db.get_total_users()
     
+    # Check AI Providers
+    ai_status = []
+    if Config.OPENAI_API_KEY:
+        ai_status.append("✅ OpenAI GPT")
+    if Config.GROQ_API_KEY:
+        ai_status.append("✅ Groq")
+    if Config.GEMINI_API_KEY:
+        ai_status.append("✅ Gemini")
+    
+    ai_info = "\n".join(ai_status) if ai_status else "❌ No AI provider configured"
+    
     panel_text = f"""
 🛠️ **Owner Control Panel**
 
 📊 **Statistics:**
 👥 Total Users: {total_users}
 
-**Available Commands:**
-/broadcast - Message all users
-/viewstats - Detailed stats
-/banuser - Ban a user
-/unbanuser - Unban a user
-/debug - System health check
+**🤖 AI Providers:**
+{ai_info}
+Primary: {Config.AI_PROVIDER.upper()}
 
-**Current Config:**
-🤖 Bot Name: {Config.BOT_NAME}
-🔑 RapidAPI: {"✅ Set" if Config.RAPIDAPI_KEY else "❌ Not Set"}
-💾 MongoDB: {"✅ Connected" if db.client else "❌ Not Connected"}
-📢 Log Channel: {"✅ Set" if Config.LOG_CHANNEL else "❌ Not Set"}
-🔒 Force Sub: {"✅ Set" if Config.FORCE_SUB_CHANNEL else "❌ Not Set"}
+**📡 Status:**
+💾 MongoDB: {"✅" if db.client else "❌"}
+📢 Log Channel: {"✅" if Config.LOG_CHANNEL else "❌"}
+🔒 Force Sub: {"✅" if Config.FORCE_SUB_CHANNEL else "❌"}
+
+**⚡ Admin Commands:**
+/broadcast <msg> - Broadcast
+/viewstats - Detailed stats
+/banuser <id> - Ban user
+/unbanuser <id> - Unban user
+/debug - System check
+/aitest - Test AI providers
+/help - Full command list
+
+**Bot:** {Config.BOT_NAME}
+**Owner:** {Config.OWNER_CONTACT}
 """
     await message.reply(panel_text)
 
@@ -317,7 +354,7 @@ async def owner_panel(client: Client, message: Message):
 @bot.on_message(filters.command("broadcast") & filters.user(Config.OWNER_ID) & filters.private)
 async def broadcast_command(client: Client, message: Message):
     if len(message.command) < 2 and not message.reply_to_message:
-        await message.reply("❌ Usage: /broadcast <message> ya kisi message ko reply karo")
+        await message.reply("❌ **Usage:**\n/broadcast <message>\nYa kisi message ko reply karo")
         return
     
     broadcast_msg = message.reply_to_message if message.reply_to_message else " ".join(message.command[1:])
@@ -335,13 +372,17 @@ async def broadcast_command(client: Client, message: Message):
             else:
                 await client.send_message(user_id, broadcast_msg)
             success += 1
+            await asyncio.sleep(0.05)  # Rate limit protection
         except:
             failed += 1
         
         if (success + failed) % 50 == 0:
-            await status_msg.edit_text(
-                f"📤 Broadcasting...\n✅ Success: {success}\n❌ Failed: {failed}"
-            )
+            try:
+                await status_msg.edit_text(
+                    f"📤 Broadcasting...\n✅ Success: {success}\n❌ Failed: {failed}"
+                )
+            except:
+                pass
     
     await status_msg.edit_text(
         f"✅ **Broadcast Complete!**\n\n"
@@ -353,17 +394,17 @@ async def broadcast_command(client: Client, message: Message):
 @bot.on_message(filters.command("banuser") & filters.user(Config.OWNER_ID) & filters.private)
 async def ban_user_command(client: Client, message: Message):
     if len(message.command) < 2:
-        await message.reply("❌ Usage: /banuser <user_id>")
+        await message.reply("❌ **Usage:** /banuser <user_id>")
         return
     
     try:
         user_id = int(message.command[1])
         await db.ban_user(user_id)
-        await message.reply(f"✅ User {user_id} banned!")
+        await message.reply(f"✅ User `{user_id}` banned!")
         
         await send_to_log_channel(
             client,
-            f"🚫 **User Banned**\n\nUser ID: `{user_id}`\nBy: {message.from_user.first_name}"
+            f"🚫 **User Banned**\nID: `{user_id}`\nBy: {message.from_user.first_name}"
         )
     except:
         await message.reply("❌ Invalid user ID")
@@ -372,17 +413,17 @@ async def ban_user_command(client: Client, message: Message):
 @bot.on_message(filters.command("unbanuser") & filters.user(Config.OWNER_ID) & filters.private)
 async def unban_user_command(client: Client, message: Message):
     if len(message.command) < 2:
-        await message.reply("❌ Usage: /unbanuser <user_id>")
+        await message.reply("❌ **Usage:** /unbanuser <user_id>")
         return
     
     try:
         user_id = int(message.command[1])
         await db.unban_user(user_id)
-        await message.reply(f"✅ User {user_id} unbanned!")
+        await message.reply(f"✅ User `{user_id}` unbanned!")
         
         await send_to_log_channel(
             client,
-            f"✅ **User Unbanned**\n\nUser ID: `{user_id}`\nBy: {message.from_user.first_name}"
+            f"✅ **User Unbanned**\nID: `{user_id}`\nBy: {message.from_user.first_name}"
         )
     except:
         await message.reply("❌ Invalid user ID")
@@ -390,26 +431,6 @@ async def unban_user_command(client: Client, message: Message):
 
 @bot.on_message(filters.command("debug") & filters.user(Config.OWNER_ID) & filters.private)
 async def debug_command(client: Client, message: Message):
-    
-    # Test RapidAPI
-    test_msg = await message.reply("🔍 Testing RapidAPI Grok...")
-    
-    test_response = await get_grok_response([
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Reply with only: WORKING"}
-    ], temperature=0)
-    
-    await test_msg.delete()
-    
-    if "WORKING" in test_response.upper() and "❌" not in test_response:
-        api_status = "✅ Working"
-        api_detail = f"Response: {test_response[:50]}"
-    elif "❌" in test_response:
-        api_status = "❌ Error"
-        api_detail = test_response[:300]
-    else:
-        api_status = "⚠️ Unexpected"
-        api_detail = f"Got: {test_response[:100]}"
     
     # Test MongoDB
     mongo_status = "✅ Connected" if db.client else "❌ Not Connected"
@@ -421,44 +442,94 @@ async def debug_command(client: Client, message: Message):
             chat = await client.get_chat(Config.LOG_CHANNEL)
             log_status = f"✅ {chat.title}"
         except Exception as e:
-            log_status = f"⚠️ Error: {str(e)[:50]}"
+            log_status = f"⚠️ {str(e)[:30]}"
     
     # Test Force Sub
     force_status = "❌ Not Set"
     if Config.FORCE_SUB_CHANNEL:
         try:
-            channel = Config.FORCE_SUB_CHANNEL.replace("@", "").replace("https://t.me/", "").strip()
+            channel = Config.FORCE_SUB_CHANNEL.replace("@", "").strip()
             chat = await client.get_chat(f"@{channel}")
             force_status = f"✅ {chat.title}"
         except Exception as e:
-            force_status = f"⚠️ Error: {str(e)[:50]}"
+            force_status = f"⚠️ {str(e)[:30]}"
+    
+    # AI Provider Status
+    ai_providers = []
+    if Config.OPENAI_API_KEY:
+        ai_providers.append(f"✅ OpenAI: {Config.OPENAI_API_KEY[:10]}...")
+    else:
+        ai_providers.append("❌ OpenAI: Not Set")
+    
+    if Config.GROQ_API_KEY:
+        ai_providers.append(f"✅ Groq: {Config.GROQ_API_KEY[:10]}...")
+    else:
+        ai_providers.append("❌ Groq: Not Set")
+    
+    if Config.GEMINI_API_KEY:
+        ai_providers.append(f"✅ Gemini: {Config.GEMINI_API_KEY[:10]}...")
+    else:
+        ai_providers.append("❌ Gemini: Not Set")
+    
+    ai_info = "\n".join(ai_providers)
     
     debug_text = f"""
 🔍 **System Health Check**
 
-**🤖 RapidAPI Grok:**
-Status: {api_status}
-{api_detail}
+**🤖 AI Providers:**
+Primary: **{Config.AI_PROVIDER.upper()}**
+{ai_info}
 
-**💾 MongoDB:** {mongo_status}
+**💾 Database:** {mongo_status}
 **📢 Log Channel:** {log_status}
 **🔒 Force Sub:** {force_status}
 
-**🔧 Configuration:**
+**🔧 Bot Configuration:**
 ✅ API_ID: {"Set" if Config.API_ID else "Missing"}
 ✅ API_HASH: {"Set" if Config.API_HASH else "Missing"}
 ✅ BOT_TOKEN: {"Set" if Config.BOT_TOKEN else "Missing"}
-✅ RAPIDAPI_KEY: {"Set (" + Config.RAPIDAPI_KEY[:10] + "...)" if Config.RAPIDAPI_KEY else "Missing"}
-✅ RAPIDAPI_HOST: {Config.RAPIDAPI_HOST}
-✅ RAPIDAPI_MODEL: {Config.RAPIDAPI_MODEL}
 ✅ MONGO_URI: {"Set" if Config.MONGO_URI else "Missing"}
 
-**💡 RapidAPI Dashboard:**
-https://rapidapi.com/developer/apps
+**📊 Stats:**
+Total Users: {await db.get_total_users()}
 
-**Owner:** {Config.OWNER_CONTACT}
+**💡 Get FREE API Keys:**
+• Groq: https://console.groq.com
+• Gemini: https://aistudio.google.com/app/apikey
+
+**Test AI:** /aitest
 """
     await message.reply(debug_text)
+
+
+@bot.on_message(filters.command("aitest") & filters.user(Config.OWNER_ID) & filters.private)
+async def ai_test_command(client: Client, message: Message):
+    
+    test_msg = await message.reply("🔍 Testing AI providers...")
+    
+    test_messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Reply with only: WORKING"}
+    ]
+    
+    response = await get_ai_response(test_messages, temperature=0)
+    
+    if "WORKING" in response.upper() and "❌" not in response:
+        status = "✅ **AI Working!**"
+        detail = f"Response: {response[:100]}"
+    elif "❌" in response:
+        status = "❌ **AI Error**"
+        detail = response[:500]
+    else:
+        status = "⚠️ **Unexpected Response**"
+        detail = f"Got: {response[:200]}"
+    
+    await test_msg.edit_text(
+        f"**AI Provider Test**\n\n"
+        f"Provider: {Config.AI_PROVIDER.upper()}\n\n"
+        f"{status}\n\n"
+        f"{detail}"
+    )
 
 
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
@@ -466,10 +537,10 @@ async def view_stats(client: Client, message: Message):
     total_users = await db.get_total_users()
     
     # Gender breakdown
-    male_users = await db.users.count_documents({"gender": "male"})
-    female_users = await db.users.count_documents({"gender": "female"})
-    trans_users = await db.users.count_documents({"gender": "transgender"})
-    nb_users = await db.users.count_documents({"gender": "nonbinary"})
+    male = await db.users.count_documents({"gender": "male"})
+    female = await db.users.count_documents({"gender": "female"})
+    trans = await db.users.count_documents({"gender": "transgender"})
+    nb = await db.users.count_documents({"gender": "nonbinary"})
     no_gender = await db.users.count_documents({"gender": None})
     
     stats_text = f"""
@@ -478,20 +549,21 @@ async def view_stats(client: Client, message: Message):
 **Total Users:** {total_users}
 
 **Gender Breakdown:**
-👨 Male: {male_users}
-👩 Female: {female_users}
-🏳️‍⚧️ Transgender: {trans_users}
-⚧️ Non-Binary: {nb_users}
+👨 Male: {male}
+👩 Female: {female}
+🏳️‍⚧️ Transgender: {trans}
+⚧️ Non-Binary: {nb}
 ❓ Not Set: {no_gender}
 
 **Database:** {Config.DATABASE_NAME}
+**Bot:** {Config.BOT_NAME}
 """
     await message.reply(stats_text)
 
 
-# ========== MAIN CONVERSATION HANDLER ==========
+# ========== CONVERSATION HANDLER ==========
 
-@bot.on_message(filters.text & filters.private & ~filters.command(["start", "help", "mode", "mood", "reset", "privacy", "ownerpanel", "broadcast", "banuser", "unbanuser", "debug", "viewstats"]))
+@bot.on_message(filters.text & filters.private & ~filters.command(["start", "help", "mode", "mood", "reset", "privacy", "ownerpanel", "broadcast", "banuser", "unbanuser", "debug", "viewstats", "aitest"]))
 async def handle_conversation(client: Client, message: Message):
     user_id = message.from_user.id
     user_name = message.from_user.first_name
@@ -499,26 +571,15 @@ async def handle_conversation(client: Client, message: Message):
     # Check MongoDB
     if not Config.MONGO_URI or not db.client:
         await message.reply(
-            "❌ Database configure nahi hai. Bot kaam nahi kar sakta.\n"
-            f"Owner se contact karo: {Config.OWNER_CONTACT}"
-        )
-        return
-    
-    # Check RapidAPI
-    if not Config.RAPIDAPI_KEY:
-        await message.reply(
-            "❌ RapidAPI key configure nahi hai. Bot reply nahi de sakta.\n"
-            f"Owner se contact karo: {Config.OWNER_CONTACT}"
+            "❌ Database not configured.\n"
+            f"Contact: {Config.OWNER_CONTACT}"
         )
         return
     
     # Check force sub
     is_subscribed, buttons = await check_force_sub(client, user_id)
     if not is_subscribed:
-        await message.reply(
-            "🔒 Pehle channel join karo!",
-            reply_markup=buttons
-        )
+        await message.reply("🔒 Pehle channel join karo!", reply_markup=buttons)
         return
     
     # Check if banned
@@ -529,7 +590,7 @@ async def handle_conversation(client: Client, message: Message):
     current_time = time.time()
     if user_id in user_flood_control:
         if current_time - user_flood_control[user_id] < Config.FLOOD_SLEEP:
-            await message.reply("⏳ Thoda ruko, ek saath itne messages mat bhejo!")
+            await message.reply("⏳ Thoda ruko!")
             return
     user_flood_control[user_id] = current_time
     
@@ -543,35 +604,30 @@ async def handle_conversation(client: Client, message: Message):
         await message.reply("⚠️ Pehle gender select karo! /start use karo.")
         return
     
-    # Add reaction to user's message
+    # Add reaction
     try:
-        reaction_emoji = get_random_reaction()
-        await message.react(reaction_emoji)
-    except ReactionInvalid:
-        pass  # Ignore if reactions not supported
-    except Exception as e:
-        print(f"Reaction error: {e}")
+        await message.react(get_random_reaction())
+    except:
+        pass
     
-    # Typing action - FIXED VERSION
+    # Typing action
     try:
         await client.send_chat_action(user_id, enums.ChatAction.TYPING)
     except:
-        pass  # Ignore if typing action fails
+        pass
     
     # Get conversation history
     history = await db.get_conversation_history(user_id, limit=5)
     history.reverse()
     
-    # Build messages for Grok AI
+    # Build messages
     messages = []
-    
-    # System prompt
     mode = user.get("mode", "balanced")
     gender = user.get("gender")
     system_prompt = get_system_prompt(gender, mode)
     messages.append({"role": "system", "content": system_prompt})
     
-    # Add conversation history
+    # Add history
     for conv in history:
         messages.append({"role": "user", "content": conv["user_message"]})
         messages.append({"role": "assistant", "content": conv["bot_response"]})
@@ -579,32 +635,31 @@ async def handle_conversation(client: Client, message: Message):
     # Add current message
     messages.append({"role": "user", "content": message.text})
     
-    # Get response from Grok AI
-    response = await get_grok_response(messages, temperature=0.8)
+    # Get AI response
+    response = await get_ai_response(messages, temperature=0.8)
     
     # Send response
-    bot_msg = await message.reply(response)
+    await message.reply(response)
     
     # Save conversation
     await db.save_conversation(user_id, message.text, response)
     
-    # Log FULL CONVERSATION to channel
+    # Log to channel
     await send_to_log_channel(
         client,
-        f"💬 **Conversation Log**\n\n"
-        f"👤 **User:** {user_name}\n"
-        f"🆔 **ID:** `{user_id}`\n"
-        f"🎭 **Gender:** {gender}\n"
-        f"⚙️ **Mode:** {mode}\n"
-        f"📊 **Total Chats:** {user.get('conversation_count', 0) + 1}\n"
-        f"{'='*30}\n\n"
-        f"**👤 User Message:**\n{message.text}\n\n"
-        f"{'='*30}\n\n"
-        f"**🤖 Bot Response:**\n{response}"
+        f"💬 **Conversation**\n\n"
+        f"👤 {user_name} (`{user_id}`)\n"
+        f"🎭 {gender} | {mode}\n"
+        f"📊 Chat #{user.get('conversation_count', 0) + 1}\n"
+        f"{'='*30}\n"
+        f"**User:** {message.text}\n\n"
+        f"{'='*30}\n"
+        f"**Bot:** {response[:500]}"
     )
 
 
-# Main function
+# ========== MAIN FUNCTION ==========
+
 async def main():
     # Connect to database
     if Config.MONGO_URI:
@@ -619,12 +674,13 @@ async def main():
     # Start bot
     await bot.start()
     print(f"✅ {Config.BOT_NAME} Started!")
+    print(f"AI Provider: {Config.AI_PROVIDER}")
     
     # Keep alive
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    # Start Flask in separate thread
+    # Start Flask
     Thread(target=run_flask).start()
     
     # Run bot
