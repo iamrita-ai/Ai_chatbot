@@ -75,8 +75,8 @@ async def start_command(client: Client, message: Message):
         await message.reply(
             f"🔒 **Access Restricted**\n\n"
             f"Pehle channel ko join karo, phir bot use kar sakte ho:\n\n"
-            f"👉 Channel: {Config.FORCE_SUB_CHANNEL}\n\n"
-            "Join karne ke baad **Refresh** button dabao!",
+            f"👉 Channel: @{Config.FORCE_SUB_CHANNEL}\n\n"
+            "Join karne ke baad **'I Joined, Check Again'** button dabao!",
             reply_markup=buttons
         )
         return
@@ -306,7 +306,7 @@ async def owner_panel(client: Client, message: Message):
 
 **Current Config:**
 🤖 Bot Name: {Config.BOT_NAME}
-🔑 Grok API: {"✅ Set" if Config.GROK_API_KEY else "❌ Not Set"}
+🔑 RapidAPI: {"✅ Set" if Config.RAPIDAPI_KEY else "❌ Not Set"}
 💾 MongoDB: {"✅ Connected" if db.client else "❌ Not Connected"}
 📢 Log Channel: {"✅ Set" if Config.LOG_CHANNEL else "❌ Not Set"}
 🔒 Force Sub: {"✅ Set" if Config.FORCE_SUB_CHANNEL else "❌ Not Set"}
@@ -433,20 +433,12 @@ async def debug_command(client: Client, message: Message):
         except Exception as e:
             force_status = f"⚠️ Error: {str(e)[:50]}"
     
-    # Working endpoint info
-    endpoint_info = "Not detected yet"
-    if WORKING_ENDPOINT:
-        endpoint_info = f"✅ {WORKING_ENDPOINT['name']}\nURL: {WORKING_ENDPOINT['url']}"
-    
     debug_text = f"""
 🔍 **System Health Check**
 
 **🤖 RapidAPI Grok:**
 Status: {api_status}
 {api_detail}
-
-**🔌 Endpoint:**
-{endpoint_info}
 
 **💾 MongoDB:** {mongo_status}
 **📢 Log Channel:** {log_status}
@@ -460,15 +452,19 @@ Status: {api_status}
 ✅ RAPIDAPI_APP_ID: {Config.RAPIDAPI_APP_ID}
 ✅ MONGO_URI: {"Set" if Config.MONGO_URI else "Missing"}
 
-**📝 Available Endpoints:**
+**📝 Endpoints:**
 {len(Config.RAPIDAPI_ENDPOINTS)} endpoints configured
 
-**💡 Next Steps:**
-1. Check RapidAPI dashboard: https://rapidapi.com/
-2. Verify subscription is active
-3. Check API key is correct
+**💡 Troubleshooting:**
+1. RapidAPI Dashboard: https://rapidapi.com/
+2. Check subscription status
+3. Verify API key is correct
+4. Check monthly quota
+
+**Owner:** {Config.OWNER_CONTACT}
 """
     await message.reply(debug_text)
+
 
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
@@ -513,10 +509,10 @@ async def handle_conversation(client: Client, message: Message):
         )
         return
     
-    # Check Grok AI
-    if not Config.GROK_API_KEY:
+    # Check RapidAPI
+    if not Config.RAPIDAPI_KEY:
         await message.reply(
-            "❌ Grok AI API configure nahi hai. Bot reply nahi de sakta.\n"
+            "❌ RapidAPI key configure nahi hai. Bot reply nahi de sakta.\n"
             f"Owner se contact karo: {Config.OWNER_CONTACT}"
         )
         return
