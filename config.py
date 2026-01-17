@@ -10,7 +10,10 @@ class Config:
     # Bot Name
     BOT_NAME = getenv("BOT_NAME", "AI Life Partner")
     
-    # Hugging Face ONLY
+    # Cohere AI (FREE - RECOMMENDED)
+    COHERE_API_KEY = getenv("COHERE_API_KEY", "")
+    
+    # Hugging Face (Backup)
     HUGGINGFACE_API_KEY = getenv("HUGGINGFACE_API_KEY", "")
     
     # Database
