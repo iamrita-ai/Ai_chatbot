@@ -237,21 +237,14 @@ async def privacy_command(client: Client, message: Message):
 async def owner_panel(client: Client, message: Message):
     total = await db.get_total_users()
     
-    ai_status = []
-    if Config.OPENAI_API_KEY:
-        ai_status.append("✅ OpenAI")
-    if Config.GROQ_API_KEY:
-        ai_status.append("✅ Groq")
-    if Config.GEMINI_API_KEY:
-        ai_status.append("✅ Gemini")
+    hf_status = "✅ Set" if Config.HUGGINGFACE_API_KEY else "❌ Not Set"
     
     panel = f"""
 🛠️ **Owner Panel**
 
 📊 Users: {total}
 
-🤖 AI: {', '.join(ai_status) if ai_status else '❌ None'}
-Primary: {Config.AI_PROVIDER.upper()}
+🤖 AI: Hugging Face {hf_status}
 
 **Commands:**
 /broadcast, /viewstats, /banuser, /unbanuser, /debug, /aitest
@@ -363,6 +356,9 @@ Hugging Face ONLY
 **📊 Users:** {await db.get_total_users()}
 
 **Test:** /aitest
+
+**Get HF Token:**
+https://huggingface.co/settings/tokens
 """
     await message.reply(debug_text)
 
@@ -370,23 +366,27 @@ Hugging Face ONLY
 @bot.on_message(filters.command("aitest") & filters.user(Config.OWNER_ID) & filters.private)
 async def ai_test(client: Client, message: Message):
     
-    test_msg = await message.reply("🔍 Testing Hugging Face...")
+    test_msg = await message.reply("🔍 Testing Hugging Face...\n\nPlease wait 10-30 seconds...")
     
     response = await get_ai_response([
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Hello, how are you?"}
     ], temperature=0.7)
     
-    if "❌" in response or "busy" in response.lower():
+    if "❌" in response or "busy" in response.lower() or len(response) < 10:
         status = "❌ Failed"
+        detail = response
     else:
         status = "✅ Working"
+        detail = f"Response: {response}"
     
     await test_msg.edit_text(
         f"**Hugging Face Test**\n\n"
         f"{status}\n\n"
-        f"**Response:**\n{response}"
+        f"{detail}\n\n"
+        f"**Token:** {Config.HUGGINGFACE_API_KEY[:15] if Config.HUGGINGFACE_API_KEY else 'Not Set'}..."
     )
+
 
 @bot.on_message(filters.command("viewstats") & filters.user(Config.OWNER_ID) & filters.private)
 async def view_stats(client: Client, message: Message):
@@ -499,16 +499,27 @@ async def handle_conversation(client: Client, message: Message):
 # ========== MAIN ==========
 
 async def main():
+    # Connect to database
     if Config.MONGO_URI:
         connected = await db.connect()
-        print("✅ MongoDB" if connected else "❌ MongoDB Failed")
+        if connected:
+            print("✅ MongoDB Connected")
+        else:
+            print("❌ MongoDB Failed")
+    else:
+        print("⚠️ MongoDB URI not set")
     
+    # Start bot
     await bot.start()
     print(f"✅ {Config.BOT_NAME} Started!")
-    print(f"AI: {Config.AI_PROVIDER}")
+    print("🤖 AI: Hugging Face")
     
+    # Keep alive
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
+    # Start Flask
     Thread(target=run_flask).start()
+    
+    # Run bot
     bot.run(main())
