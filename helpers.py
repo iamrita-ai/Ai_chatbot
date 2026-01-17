@@ -52,9 +52,9 @@ async def check_force_sub(client: Client, user_id: int):
 
 
 async def get_grok_response(messages, temperature=0.7):
-    """Get response from Grok AI API"""
+    """Get response from Grok AI API with better error handling"""
     if not Config.GROK_API_KEY:
-        return "❌ Grok AI API key configure nahi hai. Owner se contact karo."
+        return "❌ **Grok AI API Key Missing**\n\nOwner ne API key configure nahi kiya hai."
     
     headers = {
         "Content-Type": "application/json",
@@ -79,11 +79,31 @@ async def get_grok_response(messages, temperature=0.7):
                 if response.status == 200:
                     data = await response.json()
                     return data["choices"][0]["message"]["content"]
+                
+                elif response.status == 401:
+                    return "❌ **Grok AI Authentication Failed**\n\nAPI key invalid hai. Owner se contact karo."
+                
+                elif response.status == 403:
+                    return "❌ **Grok AI Access Denied**\n\nAPI key mein permission nahi hai ya account inactive hai.\n\nOwner ko X.AI account check karna hoga."
+                
+                elif response.status == 429:
+                    return "⏳ **Rate Limit Exceeded**\n\nBahut zyada requests ho gaye. Thodi der baad try karo."
+                
+                elif response.status == 500:
+                    return "⚠️ **Grok AI Server Error**\n\nX.AI servers down hain. Thodi der baad try karo."
+                
                 else:
                     error_text = await response.text()
-                    return f"❌ Grok AI Error ({response.status}): {error_text[:100]}"
+                    return f"❌ **Grok AI Error ({response.status})**\n\n{error_text[:200]}"
+                    
+    except asyncio.TimeoutError:
+        return "⏳ **Request Timeout**\n\nGrok AI response mein bahut time lag raha hai. Phir se try karo."
+    
+    except aiohttp.ClientError as e:
+        return f"❌ **Network Error**\n\nGrok AI se connection nahi ho paa raha: {str(e)[:100]}"
+    
     except Exception as e:
-        return f"❌ Grok AI connection error: {str(e)}"
+        return f"❌ **Unknown Error**\n\n{str(e)[:150]}"
 
 
 def get_system_prompt(user_gender, mode="balanced"):
