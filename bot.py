@@ -1,6 +1,7 @@
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import ReactionInvalid, MessageNotModified
 from config import Config
 from database import db
 from helpers import (
@@ -8,7 +9,9 @@ from helpers import (
     get_grok_response,
     get_system_prompt,
     create_gender_keyboard,
-    create_mode_keyboard
+    create_mode_keyboard,
+    get_random_reaction,
+    send_to_log_channel
 )
 from flask import Flask
 from threading import Thread
@@ -71,8 +74,9 @@ async def start_command(client: Client, message: Message):
     if not is_subscribed:
         await message.reply(
             f"🔒 **Access Restricted**\n\n"
-            f"Pehle is channel ko join karo, phir bot use kar sakte ho:\n\n"
-            f"👉 {Config.FORCE_SUB_CHANNEL}",
+            f"Pehle channel ko join karo, phir bot use kar sakte ho:\n\n"
+            f"👉 Channel: {Config.FORCE_SUB_CHANNEL}\n\n"
+            "Join karne ke baad **Refresh** button dabao!",
             reply_markup=buttons
         )
         return
@@ -100,17 +104,14 @@ async def start_command(client: Client, message: Message):
         )
         
         # Log to channel
-        if Config.LOG_CHANNEL:
-            try:
-                await client.send_message(
-                    Config.LOG_CHANNEL,
-                    f"🆕 **New User Started Bot**\n\n"
-                    f"👤 Name: {first_name}\n"
-                    f"🆔 User ID: `{user_id}`\n"
-                    f"📝 Username: @{username if username else 'None'}"
-                )
-            except:
-                pass
+        await send_to_log_channel(
+            client,
+            f"🆕 **New User Started Bot**\n\n"
+            f"👤 Name: {first_name}\n"
+            f"🆔 User ID: `{user_id}`\n"
+            f"📝 Username: @{username if username else 'None'}\n"
+            f"🕐 Time: {message.date}"
+        )
     else:
         gender_emoji = {"male": "👨", "female": "👩", "transgender": "🏳️‍⚧️", "nonbinary": "⚧️"}
         await message.reply(
@@ -150,15 +151,13 @@ async def gender_selection(client: Client, callback: CallbackQuery):
     )
     
     # Log to channel
-    if Config.LOG_CHANNEL:
-        try:
-            await client.send_message(
-                Config.LOG_CHANNEL,
-                f"✅ User set gender: {gender}\n"
-                f"User ID: `{user_id}`"
-            )
-        except:
-            pass
+    await send_to_log_channel(
+        client,
+        f"✅ **User Gender Set**\n\n"
+        f"👤 User: {callback.from_user.first_name}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"🎭 Gender: **{gender.title()}**"
+    )
 
 
 @bot.on_callback_query(filters.regex("^refresh_sub$"))
@@ -168,7 +167,8 @@ async def refresh_subscription(client: Client, callback: CallbackQuery):
     is_subscribed, buttons = await check_force_sub(client, user_id)
     if is_subscribed:
         await callback.message.delete()
-        await callback.message.reply("✅ Verified! Ab bot use kar sakte ho. /start dabao.")
+        await callback.message.reply("✅ **Verified!** Ab bot use kar sakte ho. /start dabao.")
+        await callback.answer("✅ Verification successful!", show_alert=False)
     else:
         await callback.answer("❌ Abhi bhi join nahi kiya! Pehle channel join karo.", show_alert=True)
 
@@ -239,6 +239,14 @@ async def mode_selection(client: Client, callback: CallbackQuery):
     }
     
     await callback.message.edit_text(mode_responses.get(mode, "Mode updated!"))
+    
+    # Log to channel
+    await send_to_log_channel(
+        client,
+        f"🎭 **Mode Changed**\n\n"
+        f"👤 User: {callback.from_user.first_name} (`{user_id}`)\n"
+        f"Mode: **{mode.title()}**"
+    )
 
 
 @bot.on_message(filters.command("reset") & filters.private)
@@ -247,6 +255,13 @@ async def reset_command(client: Client, message: Message):
     await message.reply(
         "🔄 **Memory Reset Complete**\n\n"
         "Maine sab kuch bhula diya. Fresh start kar sakte hain!"
+    )
+    
+    # Log to channel
+    await send_to_log_channel(
+        client,
+        f"🔄 **Memory Reset**\n\n"
+        f"👤 User: {message.from_user.first_name} (`{message.from_user.id}`)"
     )
 
 
@@ -345,6 +360,11 @@ async def ban_user_command(client: Client, message: Message):
         user_id = int(message.command[1])
         await db.ban_user(user_id)
         await message.reply(f"✅ User {user_id} banned!")
+        
+        await send_to_log_channel(
+            client,
+            f"🚫 **User Banned**\n\nUser ID: `{user_id}`\nBy: {message.from_user.first_name}"
+        )
     except:
         await message.reply("❌ Invalid user ID")
 
@@ -359,6 +379,11 @@ async def unban_user_command(client: Client, message: Message):
         user_id = int(message.command[1])
         await db.unban_user(user_id)
         await message.reply(f"✅ User {user_id} unbanned!")
+        
+        await send_to_log_channel(
+            client,
+            f"✅ **User Unbanned**\n\nUser ID: `{user_id}`\nBy: {message.from_user.first_name}"
+        )
     except:
         await message.reply("❌ Invalid user ID")
 
@@ -428,6 +453,7 @@ async def view_stats(client: Client, message: Message):
 @bot.on_message(filters.text & filters.private & ~filters.command(["start", "help", "mode", "mood", "reset", "privacy", "ownerpanel", "broadcast", "banuser", "unbanuser", "debug", "viewstats"]))
 async def handle_conversation(client: Client, message: Message):
     user_id = message.from_user.id
+    user_name = message.from_user.first_name
     
     # Check MongoDB
     if not Config.MONGO_URI or not db.client:
@@ -476,6 +502,15 @@ async def handle_conversation(client: Client, message: Message):
         await message.reply("⚠️ Pehle gender select karo! /start use karo.")
         return
     
+    # Add reaction to user's message
+    try:
+        reaction_emoji = get_random_reaction()
+        await message.react(reaction_emoji)
+    except ReactionInvalid:
+        pass  # Ignore if reactions not supported
+    except Exception as e:
+        print(f"Reaction error: {e}")
+    
     # Typing action
     await client.send_chat_action(user_id, "typing")
     
@@ -504,25 +539,25 @@ async def handle_conversation(client: Client, message: Message):
     response = await get_grok_response(messages, temperature=0.8)
     
     # Send response
-    await message.reply(response)
+    bot_msg = await message.reply(response)
     
     # Save conversation
     await db.save_conversation(user_id, message.text, response)
     
-    # Log to channel (only first message or random sampling)
-    if Config.LOG_CHANNEL and user.get("conversation_count", 0) == 0:
-        try:
-            await client.send_message(
-                Config.LOG_CHANNEL,
-                f"💬 **First Conversation**\n\n"
-                f"User: {message.from_user.first_name} (`{user_id}`)\n"
-                f"Gender: {gender}\n"
-                f"Mode: {mode}\n\n"
-                f"**User:** {message.text[:100]}\n"
-                f"**Bot:** {response[:100]}"
-            )
-        except:
-            pass
+    # Log FULL CONVERSATION to channel
+    await send_to_log_channel(
+        client,
+        f"💬 **Conversation Log**\n\n"
+        f"👤 **User:** {user_name}\n"
+        f"🆔 **ID:** `{user_id}`\n"
+        f"🎭 **Gender:** {gender}\n"
+        f"⚙️ **Mode:** {mode}\n"
+        f"📊 **Total Chats:** {user.get('conversation_count', 0) + 1}\n"
+        f"{'='*30}\n\n"
+        f"**👤 User Message:**\n{message.text}\n\n"
+        f"{'='*30}\n\n"
+        f"**🤖 Bot Response:**\n{response}"
+    )
 
 
 # Main function
